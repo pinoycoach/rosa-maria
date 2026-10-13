@@ -1,0 +1,96 @@
+{
+  "name": "kgl-brand-merchandise-mcp",
+  "version": "1.0.0",
+  "description": "Model Context Protocol (MCP) server for KGL (Keep Give Live) brand design and custom phone case manufacturing.",
+  "brand": {
+    "name": "KGL",
+    "motto": "Keep • Give • Live",
+    "pillars": [
+      {
+        "name": "KEEP",
+        "meaning": "Preserve sovereign energy and mental peace"
+      },
+      {
+        "name": "GIVE",
+        "meaning": "Unconditional value, teaching, and kindness"
+      },
+      {
+        "name": "LIVE",
+        "meaning": "Radical presence, action, and celebration of the now"
+      }
+    ],
+    "palette": {
+      "obsidian": "#0A0A0C",
+      "flareGold": "#F59E0B",
+      "electricCyan": "#06B6D4",
+      "cyberViolet": "#8B5CF6",
+      "frostedWhite": "#F8FAFC"
+    }
+  },
+  "tools": [
+    {
+      "name": "generate_kgl_affirmation",
+      "description": "Generates 3 punchy, sovereign KGL affirmations based on user intent.",
+      "parameters": {
+        "intent": {
+          "type": "string",
+          "description": "User current struggle or goal"
+        },
+        "vibe": {
+          "type": "string",
+          "enum": [
+            "stoic",
+            "abundance",
+            "solopreneur",
+            "peace"
+          ]
+        }
+      }
+    },
+    {
+      "name": "render_phone_case_svg",
+      "description": "Produces production-ready 300 DPI vector SVG for on-demand phone case printing.",
+      "parameters": {
+        "phoneModel": {
+          "type": "string",
+          "enum": [
+            "iphone-16-pro-max",
+            "iphone-16-pro",
+            "galaxy-s24-ultra",
+            "pixel-9-pro"
+          ]
+        },
+        "finishId": {
+          "type": "string",
+          "enum": [
+            "obsidian-stealth",
+            "cyber-aurora",
+            "liquid-gold",
+            "frost-titanium"
+          ]
+        },
+        "quoteText": {
+          "type": "string"
+        },
+        "includeMonogram": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "name": "create_print_order_manifest",
+      "description": "Packages the custom design into a print-on-demand fulfillment JSON payload.",
+      "parameters": {
+        "customerName": {
+          "type": "string"
+        },
+        "shippingAddress": {
+          "type": "object"
+        },
+        "caseSpec": {
+          "type": "object"
+        }
+      }
+    }
+  ]
+}

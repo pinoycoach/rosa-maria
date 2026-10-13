@@ -43,18 +43,3 @@ export const HomeView: React.FC<{ onOpen: (door: Door) => void; onPrayers: () =>
     </p>
   </div>
 );
-
-// Until prayer cards are built: an honest note, never a guessed prayer.
-export const ComingSoonView: React.FC<{ door: Door; onBack: () => void }> = ({ onBack }) => (
-  <div className="max-w-xl mx-auto space-y-4 animate-fade-in">
-    <button onClick={onBack} className="text-marian-700 hover:text-marian-600 font-semibold">
-      ← Back
-    </button>
-    <h1 className="font-serif text-3xl text-marian-800">Send a prayer card</h1>
-    <p className="text-lg leading-relaxed text-gray-700">
-      Prayer cards are being prepared. They'll only ever carry prayers that a person has checked against the Church's
-      approved text.
-    </p>
-    <p className="text-gray-500">Thank you for waiting.</p>
-  </div>
-);

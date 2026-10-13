@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { PRAYERS, prayerById } from '../shared/prayers';
-import { textHash, reviewFor, publicPrayer, deskPrayer, cleanReviewer, type PrayerReview } from './reviews';
+import { textHash, reviewFor, publicPrayer, deskPrayer, cleanReviewer, type Review } from './reviews';
 import { MemoryStore } from './store';
 
 const flat = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -28,8 +28,8 @@ test('every prayer has an id, a title, its text and a source to check against', 
 });
 
 const hailMary = prayerById('hail-mary')!;
-const review = (text: string): Map<string, PrayerReview> =>
-  new Map([['hail-mary', { prayerId: 'hail-mary', textHash: textHash(text), reviewedBy: 'Fr. Test', reviewedOn: '2026-10-14' }]]);
+const review = (text: string): Map<string, Review> =>
+  new Map([['hail-mary', { itemId: 'hail-mary', textHash: textHash(text), reviewedBy: 'Fr. Test', reviewedOn: '2026-10-14' }]]);
 
 test('an unreviewed prayer shows "awaiting review" and never its words', () => {
   const view = publicPrayer(hailMary, new Map());
@@ -60,10 +60,22 @@ test('reviewer names are tidied', () => {
 
 test('the store keeps one review per prayer, and can undo it', async () => {
   const s = new MemoryStore();
-  const r: PrayerReview = { prayerId: 'hail-mary', textHash: 'x', reviewedBy: 'A', reviewedOn: '2026-10-14' };
-  await s.putPrayerReview(r);
-  await s.putPrayerReview({ ...r, reviewedBy: 'B' });
-  assert.deepEqual((await s.listPrayerReviews()).map((x) => x.reviewedBy), ['B']);
-  await s.deletePrayerReview('hail-mary');
-  assert.equal((await s.listPrayerReviews()).length, 0);
+  const r: Review = { itemId: 'hail-mary', textHash: 'x', reviewedBy: 'A', reviewedOn: '2026-10-14' };
+  await s.putReview(r);
+  await s.putReview({ ...r, reviewedBy: 'B' });
+  assert.deepEqual((await s.listReviews()).map((x) => x.reviewedBy), ['B']);
+  await s.deleteReview('hail-mary');
+  assert.equal((await s.listReviews()).length, 0);
+});
+
+test('a saint is shown only once signed off, and any edit to the entry cancels it', async () => {
+  const { SAINTS } = await import('../shared/saints');
+  const { saintHash, saintKey, publicSaints, deskSaint } = await import('./reviews');
+  const lorenzo = SAINTS[0];
+  const reviews = new Map([[saintKey(lorenzo.id), { itemId: saintKey(lorenzo.id), textHash: saintHash(lorenzo), reviewedBy: 'A', reviewedOn: '2026-10-14' }]]);
+  assert.deepEqual(publicSaints(SAINTS, new Map()), []);
+  assert.deepEqual(publicSaints(SAINTS, reviews).map((s) => s.id), ['lorenzo-ruiz']);
+  const moved = { ...lorenzo, feast: '09-29' };
+  assert.deepEqual(publicSaints([moved], reviews), []);
+  assert.equal(deskSaint(moved, reviews).changedSinceReview, true);
 });

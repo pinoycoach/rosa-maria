@@ -7,7 +7,12 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { MemoryStore, createFirestoreStore, type Store, type UserDoc } from "./server/store";
 import { PRAYERS, prayerById } from "./shared/prayers";
-import { textHash, publicPrayer, deskPrayer, cleanReviewer, type PrayerReview } from "./server/reviews";
+import { textHash, publicPrayer, deskPrayer, cleanReviewer, saintKey, saintHash, publicSaints, deskSaint, type Review } from "./server/reviews";
+import { SAINTS, saintById, unknownSaintNames } from "./shared/saints";
+import { occasionById, isDesign, cleanText, NOTE_MAX, NAME_MAX, CARD_ID } from "./shared/cards";
+import { noteQuestions, combineFlags, describeFlags } from "./server/cardChecks";
+import { askJev } from "./server/jev";
+import type { CardDoc } from "./server/store";
 import { createSessions } from "./server/session";
 import {
   STARTER_INVITES, REDEEM_MESSAGES, newInvite, normalizeCode, normalizeEmail, isValidEmail, parseAdminEmails,
@@ -142,9 +147,19 @@ setInterval(() => {
   for (const [k, v] of hits) if (!v.some((t) => now - t < WINDOW_MS)) hits.delete(k);
 }, WINDOW_MS).unref();
 
+/** Counts one use against today's limit; false when the limit is already reached. */
+const takeDaily = async (key: string, limit: number) => (await store.bumpUsage(`${new Date().toISOString().slice(0, 10)}_${key}`)) <= limit;
+const CARD_DAILY_LIMIT = Number(process.env.CARD_DAILY_LIMIT) || 30;
+const GLOBAL_CARD_DAILY_LIMIT = Number(process.env.GLOBAL_CARD_DAILY_LIMIT) || 3000;
 
 const OPEN_PATHS = new Set(["/api/config", "/api/unlock"]);
-const SESSION_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/waitlist", "/api/prayers"]);
+/**
+ * Readable by anyone, even while the app is locked or invite-only: a card's recipient opens its link (and may
+ * pray a decade) without a passcode or account. Only checked prayers and signed-off saints are ever sent.
+ */
+const isPublicRead = (method: string, p: string) =>
+  method === "GET" && (p === "/api/prayers" || p === "/api/saints" || /^\/api\/cards\/[A-Za-z0-9_-]{16}$/.test(p));
+const SESSION_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/waitlist"]);
 // Reachable before you're a member (to sign in, redeem an invite or join the waitlist).
 const MEMBER_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/me/status", "/api/auth/google", "/api/invites/redeem", "/api/waitlist"]);
 
@@ -158,8 +173,13 @@ declare global {
 
 app.use("/api", (req, res, next) => {
   const p = req.originalUrl.split("?")[0];
-  // Media links are signed per file, so <img> tags work without headers.
   if (OPEN_PATHS.has(p)) return next();
+  if (isPublicRead(req.method, p)) {
+    if (overLimit(`all:${req.ip || "unknown"}`, GENERAL_RATE_LIMIT)) {
+      return res.status(429).json({ error: "Too many requests. Please wait a few minutes and try again." });
+    }
+    return next();
+  }
   if (!INVITE_ONLY && APP_PASSCODE && !passcodeMatches(req.get("x-app-passcode"))) {
     return res.status(401).json({ error: "Locked. Enter the app passcode." });
   }
@@ -211,9 +231,10 @@ const newUserDoc = (): UserDoc => {
   return { createdAt: now, updatedAt: now };
 };
 
-/** "Delete my data": the account link, unused invites and the user record. */
+/** "Delete my data": the cards you sent, the account link, unused invites and the user record. */
 app.delete("/api/me", async (req, res) => {
   try {
+    await store.deleteCardsBy(req.uid!);
     await store.deleteAccountsForUid(req.uid!);
     await store.deleteUnusedInvites(req.uid!);
     await store.deleteUser(req.uid!);
@@ -228,11 +249,11 @@ app.delete("/api/me", async (req, res) => {
 // ---------- Prayers: shown only once a person has checked the exact words ----------
 
 // Reviews change rarely and are read on every visit: keep them for a minute.
-let reviewCache: { at: number; reviews: Map<string, PrayerReview> } | null = null;
+let reviewCache: { at: number; reviews: Map<string, Review> } | null = null;
 const currentReviews = async () => {
   if (!reviewCache || Date.now() - reviewCache.at > 60_000) {
-    const list = await store.listPrayerReviews();
-    reviewCache = { at: Date.now(), reviews: new Map(list.map((r) => [r.prayerId, r])) };
+    const list = await store.listReviews();
+    reviewCache = { at: Date.now(), reviews: new Map(list.map((r) => [r.itemId, r])) };
   }
   return reviewCache.reviews;
 };
@@ -244,6 +265,93 @@ app.get("/api/prayers", async (_req, res) => {
   } catch (err: any) {
     console.error("prayers:", err);
     res.status(500).json({ error: "Could not load the prayers." });
+  }
+});
+
+app.get("/api/saints", async (_req, res) => {
+  try {
+    res.json({ saints: publicSaints(SAINTS, await currentReviews()) });
+  } catch (err: any) {
+    console.error("saints:", err);
+    res.status(500).json({ error: "Could not load the saints." });
+  }
+});
+
+// ---------- Prayer cards ----------
+
+/** The plain rules, then JEV. Saint names not on the verified list are noted for a person to look at. */
+async function checkNote(note: string) {
+  if (!note) return describeFlags([]);
+  const jev = await askJev(`A personal note on a Catholic prayer card:\n${note}`, noteQuestions());
+  for (const name of unknownSaintNames(note)) await store.flagSaintName(name).catch(() => {});
+  return describeFlags(combineFlags(note, jev));
+}
+
+app.post("/api/cards/check", async (req, res) => {
+  try {
+    res.json(await checkNote(cleanText(req.body?.note, NOTE_MAX)));
+  } catch (err: any) {
+    console.error("card check:", err);
+    res.status(500).json({ error: "Could not check the note. Please try again." });
+  }
+});
+
+const clientCard = async (c: CardDoc) => {
+  const reviews = await currentReviews();
+  const prayer = prayerById(c.prayerId);
+  const { senderUid, flags, ...rest } = c;
+  return { ...rest, prayer: prayer ? publicPrayer(prayer, reviews) : null };
+};
+
+app.post("/api/cards", async (req, res) => {
+  const b = req.body || {};
+  const occasion = occasionById(String(b.occasion || ""));
+  if (!occasion) return res.status(400).json({ error: "Pick an occasion for the card." });
+  if (!isDesign(b.design)) return res.status(400).json({ error: "Pick a card design." });
+  const prayer = prayerById(String(b.prayerId || ""));
+  try {
+    const reviews = await currentReviews();
+    if (!prayer || publicPrayer(prayer, reviews).status !== "reviewed") {
+      return res.status(400).json({ error: "Pick one of the checked prayers for the card." });
+    }
+    const note = cleanText(b.note, NOTE_MAX);
+    const check = await checkNote(note);
+    if (check.blocked) return res.status(400).json({ error: check.flags.find((f) => f.kind === "chain")!.message, ...check });
+    if (check.flags.length && b.keepNote !== true) return res.status(409).json(check);
+    if (!(await takeDaily(`cards_${req.uid}`, CARD_DAILY_LIMIT)) || !(await takeDaily("cards_all", GLOBAL_CARD_DAILY_LIMIT))) {
+      return res.status(429).json({ error: "That's a lot of cards for one day. Please send more tomorrow." });
+    }
+    const card: CardDoc = {
+      id: crypto.randomBytes(12).toString("base64url"),
+      occasion: occasion.id,
+      design: b.design,
+      prayerId: prayer.id,
+      toName: cleanText(b.toName, NAME_MAX),
+      fromName: cleanText(b.fromName, NAME_MAX),
+      note,
+      flags: check.flags.map((f) => f.kind),
+      senderUid: req.uid!,
+      createdAt: new Date().toISOString(),
+    };
+    await store.putCard(card);
+    res.json({ card: await clientCard(card) });
+  } catch (err: any) {
+    console.error("send card:", err);
+    res.status(500).json({ error: "Could not make the card. Please try again." });
+  }
+});
+
+app.get("/api/cards/:id", async (req, res) => {
+  const id = String(req.params.id || "");
+  if (!CARD_ID.test(id)) return res.status(404).json({ error: "We couldn't find that card." });
+  try {
+    const card = await store.getCard(id);
+    if (!card) return res.status(404).json({ error: "We couldn't find that card. It may have been removed." });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json({ card: await clientCard(card) });
+  } catch (err: any) {
+    console.error("open card:", err);
+    res.status(500).json({ error: "Could not open the card. Please try again." });
   }
 });
 
@@ -271,7 +379,7 @@ app.use("/api/admin", (req, res, next) => {
 
 app.get("/api/admin/prayers", async (_req, res) => {
   try {
-    const reviews = new Map((await store.listPrayerReviews()).map((r) => [r.prayerId, r]));
+    const reviews = new Map((await store.listReviews()).map((r) => [r.itemId, r]));
     res.json({ prayers: PRAYERS.map((p) => deskPrayer(p, reviews)) });
   } catch (err: any) {
     console.error("admin prayers:", err);
@@ -291,9 +399,9 @@ app.post("/api/admin/prayers/:id/review", async (req, res) => {
   if (!reviewedBy) return res.status(400).json({ error: "Write the name of the person who checked it." });
   if (b.comparedWordForWord !== true) return res.status(400).json({ error: "Tick the box to confirm you compared it word for word." });
   if (b.textHash !== textHash(prayer.text)) return res.status(409).json({ error: "This prayer's words have changed since you opened it. Reload and check it again." });
-  const review: PrayerReview = { prayerId: prayer.id, textHash: textHash(prayer.text), reviewedBy, reviewedOn: new Date().toISOString().slice(0, 10) };
+  const review: Review = { itemId: prayer.id, textHash: textHash(prayer.text), reviewedBy, reviewedOn: new Date().toISOString().slice(0, 10) };
   try {
-    await store.putPrayerReview(review);
+    await store.putReview(review);
     reviewCache = null;
     res.json({ prayer: deskPrayer(prayer, new Map([[prayer.id, review]])) });
   } catch (err: any) {
@@ -306,12 +414,64 @@ app.delete("/api/admin/prayers/:id/review", async (req, res) => {
   const prayer = prayerById(String(req.params.id));
   if (!prayer) return res.status(404).json({ error: "That prayer isn't in the library." });
   try {
-    await store.deletePrayerReview(prayer.id);
+    await store.deleteReview(prayer.id);
     reviewCache = null;
     res.json({ prayer: deskPrayer(prayer, new Map()) });
   } catch (err: any) {
     console.error("unreview prayer:", err);
     res.status(500).json({ error: "Could not undo the review." });
+  }
+});
+
+app.get("/api/admin/saints", async (_req, res) => {
+  try {
+    const reviews = new Map((await store.listReviews()).map((r) => [r.itemId, r]));
+    res.json({ saints: SAINTS.map((s) => deskSaint(s, reviews)), flagged: await store.listSaintFlags(100) });
+  } catch (err: any) {
+    console.error("admin saints:", err);
+    res.status(500).json({ error: "Could not load the saints." });
+  }
+});
+
+app.post("/api/admin/saints/:id/review", async (req, res) => {
+  const saint = saintById(String(req.params.id));
+  if (!saint) return res.status(404).json({ error: "That saint isn't on the list." });
+  const b = req.body || {};
+  const reviewedBy = cleanReviewer(b.reviewedBy);
+  if (!reviewedBy) return res.status(400).json({ error: "Write the name of the person who checked it." });
+  if (b.comparedWithSource !== true) return res.status(400).json({ error: "Tick the box to confirm you checked it against the source." });
+  if (b.textHash !== saintHash(saint)) return res.status(409).json({ error: "This entry has changed since you opened it. Reload and check it again." });
+  const review: Review = { itemId: saintKey(saint.id), textHash: saintHash(saint), reviewedBy, reviewedOn: new Date().toISOString().slice(0, 10) };
+  try {
+    await store.putReview(review);
+    reviewCache = null;
+    res.json({ saint: deskSaint(saint, new Map([[review.itemId, review]])) });
+  } catch (err: any) {
+    console.error("review saint:", err);
+    res.status(500).json({ error: "Could not save the review." });
+  }
+});
+
+app.delete("/api/admin/saints/:id/review", async (req, res) => {
+  const saint = saintById(String(req.params.id));
+  if (!saint) return res.status(404).json({ error: "That saint isn't on the list." });
+  try {
+    await store.deleteReview(saintKey(saint.id));
+    reviewCache = null;
+    res.json({ saint: deskSaint(saint, new Map()) });
+  } catch (err: any) {
+    console.error("unreview saint:", err);
+    res.status(500).json({ error: "Could not undo the review." });
+  }
+});
+
+app.delete("/api/admin/saint-flags", async (req, res) => {
+  try {
+    await store.dismissSaintFlag(String(req.body?.name || ""));
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("dismiss saint flag:", err);
+    res.status(500).json({ error: "Could not clear that name." });
   }
 });
 

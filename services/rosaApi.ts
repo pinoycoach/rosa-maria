@@ -26,6 +26,71 @@ export type PrayerView = {
 
 export const listPrayers = async () => (await call<{ prayers: PrayerView[] }>('/api/prayers', {}, 'Could not load the prayers')).prayers;
 
+// ---------- Saints ----------
+
+/** A saint a person has signed off (only these are ever sent). */
+export interface SaintView {
+  id: string;
+  name: string;
+  feast: string;
+  calendar: string;
+  canonized?: string;
+  about: string;
+  source: string;
+  sourceUrl: string;
+}
+
+export const listSaints = async () => (await call<{ saints: SaintView[] }>('/api/saints', {}, 'Could not load the saints')).saints;
+
+// ---------- Prayer cards ----------
+
+export interface NoteCheck {
+  flags: Array<{ kind: 'chain' | 'promise' | 'luck' | 'curse'; message: string }>;
+  blocked: boolean;
+}
+
+export interface CardView {
+  id: string;
+  occasion: string;
+  design: string;
+  prayerId: string;
+  toName: string;
+  fromName: string;
+  note: string;
+  createdAt: string;
+  prayer: PrayerView | null;
+}
+
+export const checkNote = (note: string) =>
+  call<NoteCheck>('/api/cards/check', { method: 'POST', body: JSON.stringify({ note }) }, 'Could not check the note');
+
+export type SendResult = { ok: true; card: CardView } | { ok: false; check: NoteCheck };
+
+/** Sends a card. A note with suggestions comes back unsent, unless the sender chose to keep it as it is. */
+export const sendCard = async (card: {
+  occasion: string;
+  design: string;
+  prayerId: string;
+  toName: string;
+  fromName: string;
+  note: string;
+  keepNote: boolean;
+}): Promise<SendResult> => {
+  const res = await apiFetch('/api/cards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(card) });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 409) return { ok: false, check: data as NoteCheck };
+  if (!res.ok) throw new Error(data.error || `Could not send the card (status ${res.status})`);
+  return { ok: true, card: data.card };
+};
+
+/** Opening a card needs no passcode or account. */
+export const openCard = async (id: string): Promise<CardView> => {
+  const res = await fetch(`/api/cards/${encodeURIComponent(id)}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not open the card.');
+  return data.card;
+};
+
 // ---------- Review desk (needs the reviewer code) ----------
 
 const CURATOR_KEY = 'rosa.curator';
@@ -71,6 +136,34 @@ export const markReviewed = async (p: DeskPrayer, reviewedBy: string) =>
     method: 'POST',
     body: JSON.stringify({ reviewedBy, comparedWordForWord: true, textHash: p.textHash }),
   })).prayer;
+
+export interface DeskSaint extends SaintView {
+  aliases: string[];
+  textHash: string;
+  status: 'reviewed' | 'awaiting-review';
+  reviewedBy: string | null;
+  reviewedOn: string | null;
+  changedSinceReview: boolean;
+}
+export interface SaintFlagView {
+  name: string;
+  count: number;
+  lastSeen: string;
+}
+
+export const deskSaints = () => curator<{ saints: DeskSaint[]; flagged: SaintFlagView[] }>('/api/admin/saints');
+
+export const markSaintReviewed = async (s: DeskSaint, reviewedBy: string) =>
+  (await curator<{ saint: DeskSaint }>(`/api/admin/saints/${encodeURIComponent(s.id)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewedBy, comparedWithSource: true, textHash: s.textHash }),
+  })).saint;
+
+export const undoSaintReview = async (s: DeskSaint) =>
+  (await curator<{ saint: DeskSaint }>(`/api/admin/saints/${encodeURIComponent(s.id)}/review`, { method: 'DELETE' })).saint;
+
+export const dismissSaintFlag = (name: string) =>
+  curator<{ ok: boolean }>('/api/admin/saint-flags', { method: 'DELETE', body: JSON.stringify({ name }) });
 
 export const undoReview = async (p: DeskPrayer) =>
   (await curator<{ prayer: DeskPrayer }>(`/api/admin/prayers/${encodeURIComponent(p.id)}/review`, { method: 'DELETE' })).prayer;

@@ -1,6 +1,7 @@
 // Where Rosa Maria keeps its data. Firestore in production (only this server can reach it, using the
 // Cloud Run identity); an in-memory copy for local runs and tests (DATA_STORE=memory).
-import type { PrayerReview } from './reviews';
+import type { Review } from './reviews';
+import type { DesignId, OccasionId } from '../shared/cards';
 import { checkRedeem, type AccountDoc, type InviteDoc, type Membership, type RedeemResult, type WaitlistDoc } from './accounts';
 
 export interface UserDoc {
@@ -12,6 +13,28 @@ export interface UserDoc {
   updatedAt: string;
 }
 
+/** A sent prayer card. Anyone with its unguessable id can open it; "Delete my data" removes the sender's cards. */
+export interface CardDoc {
+  id: string;
+  occasion: OccasionId;
+  design: DesignId;
+  prayerId: string;
+  toName: string;
+  fromName: string;
+  note: string;
+  /** Checks the sender chose to set aside ("keep my note as it is"). */
+  flags: string[];
+  senderUid: string;
+  createdAt: string;
+}
+
+/** A saint name written in a card note that isn't on the verified list, for a person to look at. */
+export interface SaintFlag {
+  name: string;
+  count: number;
+  lastSeen: string;
+}
+
 export interface Store {
   kind: 'firestore' | 'memory';
   getUser(uid: string): Promise<UserDoc | null>;
@@ -21,10 +44,16 @@ export interface Store {
   /** Adds 1 to a daily counter and returns the new count. */
   bumpUsage(key: string): Promise<number>;
   getUsage(key: string): Promise<number>;
-  listPrayerReviews(): Promise<PrayerReview[]>;
+  listReviews(): Promise<Review[]>;
   /** One review per prayer: a new one replaces the old. */
-  putPrayerReview(review: PrayerReview): Promise<void>;
-  deletePrayerReview(prayerId: string): Promise<void>;
+  putReview(review: Review): Promise<void>;
+  deleteReview(itemId: string): Promise<void>;
+  putCard(card: CardDoc): Promise<void>;
+  getCard(id: string): Promise<CardDoc | null>;
+  deleteCardsBy(senderUid: string): Promise<void>;
+  flagSaintName(name: string): Promise<void>;
+  listSaintFlags(limit: number): Promise<SaintFlag[]>;
+  dismissSaintFlag(name: string): Promise<void>;
   getAccount(sub: string): Promise<AccountDoc | null>;
   /** Creates the link unless one exists; returns the link that's stored (the existing one wins). */
   linkAccount(account: AccountDoc): Promise<AccountDoc>;
@@ -41,13 +70,26 @@ export interface Store {
   markWaitlistInvited(email: string, code: string): Promise<void>;
 }
 
+/** "St. Jude", "Saint Jude" and "st jude" are one flag. */
+const flagKey = (name: string) =>
+  name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\b(st|sts|saint|saints|san|santa|santo|sta|sto)\b\.?/g, '')
+    .replace(/[^a-z]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'unknown';
+
 // ---------- In memory ----------
 
 export class MemoryStore implements Store {
   kind = 'memory' as const;
   private users = new Map<string, UserDoc>();
   private usage = new Map<string, number>();
-  private reviews = new Map<string, PrayerReview>();
+  private reviews = new Map<string, Review>();
+  private cards = new Map<string, CardDoc>();
+  private saintFlags = new Map<string, SaintFlag>();
   private accounts = new Map<string, AccountDoc>();
   private invites = new Map<string, InviteDoc>();
   private waitlist = new Map<string, WaitlistDoc>();
@@ -72,14 +114,35 @@ export class MemoryStore implements Store {
   async getUsage(key: string) {
     return this.usage.get(key) || 0;
   }
-  async listPrayerReviews() {
+  async listReviews() {
     return [...this.reviews.values()].map((r) => ({ ...r }));
   }
-  async putPrayerReview(review: PrayerReview) {
-    this.reviews.set(review.prayerId, { ...review });
+  async putReview(review: Review) {
+    this.reviews.set(review.itemId, { ...review });
   }
-  async deletePrayerReview(prayerId: string) {
-    this.reviews.delete(prayerId);
+  async deleteReview(itemId: string) {
+    this.reviews.delete(itemId);
+  }
+  async putCard(card: CardDoc) {
+    this.cards.set(card.id, { ...card });
+  }
+  async getCard(id: string) {
+    const c = this.cards.get(id);
+    return c ? { ...c } : null;
+  }
+  async deleteCardsBy(senderUid: string) {
+    for (const [id, c] of this.cards) if (c.senderUid === senderUid) this.cards.delete(id);
+  }
+  async flagSaintName(name: string) {
+    const key = flagKey(name);
+    const cur = this.saintFlags.get(key);
+    this.saintFlags.set(key, { name: cur?.name || name, count: (cur?.count || 0) + 1, lastSeen: new Date().toISOString() });
+  }
+  async listSaintFlags(limit: number) {
+    return [...this.saintFlags.values()].sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)).slice(0, limit);
+  }
+  async dismissSaintFlag(name: string) {
+    this.saintFlags.delete(flagKey(name));
   }
   async getAccount(sub: string) {
     const a = this.accounts.get(sub);
@@ -158,14 +221,36 @@ export async function createFirestoreStore(): Promise<Store> {
     async getUsage(key) {
       return ((await db.collection('usage').doc(key).get()).data()?.count as number) || 0;
     },
-    async listPrayerReviews() {
-      return (await db.collection('prayerReviews').get()).docs.map((d) => d.data() as PrayerReview);
+    async listReviews() {
+      return (await db.collection('reviews').get()).docs.map((d) => d.data() as Review);
     },
-    async putPrayerReview(review) {
-      await db.collection('prayerReviews').doc(review.prayerId).set(review);
+    async putReview(review) {
+      await db.collection('reviews').doc(review.itemId).set(review);
     },
-    async deletePrayerReview(prayerId) {
-      await db.collection('prayerReviews').doc(prayerId).delete();
+    async deleteReview(itemId) {
+      await db.collection('reviews').doc(itemId).delete();
+    },
+    async putCard(card) {
+      await db.collection('cards').doc(card.id).set(card);
+    },
+    async getCard(id) {
+      const snap = await db.collection('cards').doc(id).get();
+      return snap.exists ? (snap.data() as CardDoc) : null;
+    },
+    async deleteCardsBy(senderUid) {
+      const snap = await db.collection('cards').where('senderUid', '==', senderUid).get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
+    },
+    async flagSaintName(name) {
+      const ref = db.collection('saintFlags').doc(flagKey(name));
+      await ref.set({ name, count: FieldValue.increment(1), lastSeen: new Date().toISOString() }, { merge: true });
+    },
+    async listSaintFlags(limit) {
+      const snap = await db.collection('saintFlags').orderBy('lastSeen', 'desc').limit(limit).get();
+      return snap.docs.map((d) => d.data() as SaintFlag);
+    },
+    async dismissSaintFlag(name) {
+      await db.collection('saintFlags').doc(flagKey(name)).delete();
     },
     async getAccount(sub) {
       const snap = await db.collection('accounts').doc(sub).get();

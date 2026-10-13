@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { deskPrayers, getCuratorCode, markReviewed, setCuratorCode, undoReview, type DeskPrayer } from '../services/rosaApi';
 import { CuratorBeta } from './CuratorBeta';
+import { SaintsDesk } from './SaintsDesk';
 
 interface CurateViewProps {
   onBack: () => void;
@@ -91,7 +92,7 @@ export const CurateView: React.FC<CurateViewProps> = ({ onBack }) => {
   const [codeInput, setCodeInput] = useState('');
   const [prayers, setPrayers] = useState<DeskPrayer[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<'prayers' | 'beta'>('prayers');
+  const [section, setSection] = useState<'prayers' | 'saints' | 'beta'>('prayers');
   const [reviewer, setReviewer] = useState(savedReviewer());
 
   const load = useCallback(async () => {
@@ -157,19 +158,34 @@ export const CurateView: React.FC<CurateViewProps> = ({ onBack }) => {
         <button onClick={() => { setCuratorCode(''); setCode(''); }} className="text-sm text-gray-500 underline">Lock the desk</button>
       </div>
       <div className="flex gap-2">
-        {(['prayers', 'beta'] as const).map((s) => (
+        {(['prayers', 'saints', 'beta'] as const).map((s) => (
           <button
             key={s}
             onClick={() => setSection(s)}
             className={`py-1.5 px-4 rounded-lg font-semibold ${section === s ? 'bg-marian-700 text-white' : 'bg-white border border-marian-100 text-gray-700'}`}
           >
-            {s === 'prayers' ? 'Prayers' : 'Beta'}
+            {s === 'prayers' ? 'Prayers' : s === 'saints' ? 'Saints' : 'Beta'}
           </button>
         ))}
       </div>
 
+      {section !== 'beta' && (
+        <label className="block rounded-xl bg-white border border-marian-100 p-4">
+          <span className="font-semibold text-marian-800">Your name, as it will appear on each sign-off</span>
+          <input
+            value={reviewer}
+            onChange={(e) => changeReviewer(e.target.value)}
+            placeholder="e.g. Fr. Juan dela Cruz"
+            maxLength={80}
+            className="mt-2 w-full rounded-lg bg-white border border-marian-200 p-2 text-ink"
+          />
+        </label>
+      )}
+
       {section === 'beta' ? (
         <CuratorBeta />
+      ) : section === 'saints' ? (
+        <SaintsDesk reviewer={reviewer} />
       ) : (
         <>
           <div className="space-y-2">
@@ -181,16 +197,6 @@ export const CurateView: React.FC<CurateViewProps> = ({ onBack }) => {
             </p>
             {prayers && <p className="text-gray-700"><b>{waiting}</b> of {prayers.length} prayers still need checking.</p>}
           </div>
-          <label className="block rounded-xl bg-white border border-marian-100 p-4">
-            <span className="font-semibold text-marian-800">Your name, as it will appear on each sign-off</span>
-            <input
-              value={reviewer}
-              onChange={(e) => changeReviewer(e.target.value)}
-              placeholder="e.g. Fr. Juan dela Cruz"
-              maxLength={80}
-              className="mt-2 w-full rounded-lg bg-white border border-marian-200 p-2 text-ink"
-            />
-          </label>
           {error && <p className="text-sm text-red-700">{error}</p>}
           {!prayers && !error && <p className="text-gray-600">Loading…</p>}
           <ul className="space-y-4">

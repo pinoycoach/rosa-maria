@@ -1,7 +1,7 @@
 // Rosa Maria works offline once it has been opened: the app and the prayers are kept on the phone.
 // Always asks the network first, so updates and new sign-offs arrive; uses the kept copy only offline.
 const CACHE = 'rosa-maria-v1';
-const KEEP_API = new Set(['/api/prayers', '/api/config']);
+const KEEP_API = new Set(['/api/prayers', '/api/saints', '/api/config']);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/icon.svg'])));

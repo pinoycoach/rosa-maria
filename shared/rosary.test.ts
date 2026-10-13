@@ -57,3 +57,13 @@ test('the Mystery names match the Rosary notes', async () => {
     for (const m of MYSTERIES[set].mysteries) assert.ok(doc.includes(m.replace(/^The /, 'the ')) || doc.includes(m), m);
   }
 });
+
+test('"Pray a decade with me" is one decade between two Signs of the Cross', () => {
+  const steps = rosarySteps('joyful', { decade: 2 });
+  const ids = steps.map((s) => (s.kind === 'prayer' ? s.prayerId : `mystery:${s.name}`));
+  assert.equal(ids[0], 'sign-of-the-cross');
+  assert.equal(ids[1], 'mystery:The Nativity');
+  assert.equal(ids.filter((x) => x === 'hail-mary').length, 10);
+  assert.equal(ids.filter((x) => x === 'our-father').length, 1);
+  assert.deepEqual(ids.slice(-3), ['glory-be', 'fatima-prayer', 'sign-of-the-cross']);
+});

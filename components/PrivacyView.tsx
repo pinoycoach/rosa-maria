@@ -37,6 +37,12 @@ export const PrivacyView: React.FC<PrivacyViewProps> = ({ onBack, onDeleteMyData
           you on every device and, while the app is invite-only, to know who invited whom. We also keep your invite codes
           and whether they've been used.
         </p>
+        <p>
+          When you send a prayer card, we keep the card (the occasion, design, prayer, the names you typed and your note) so
+          the person you send it to can open it. Anyone with its private link can open it, so share the link only with
+          them. Your note is checked for chain-letter wording and similar by our own rules and by TypeSafe's JEV checker;
+          if it names a saint who isn't on our verified list, we keep just that name (not your note) for a person to look at.
+        </p>
         <p>If you join the waitlist, we keep that email address only to send you an invite.</p>
         <p>We don't sell your data, show ads or charge for praying.</p>
       </section>
@@ -58,7 +64,8 @@ export const PrivacyView: React.FC<PrivacyViewProps> = ({ onBack, onDeleteMyData
       <section className="space-y-3 p-4 rounded-xl bg-white border border-marian-100">
         <h2 className="text-lg font-semibold text-marian-800">Delete my data</h2>
         <p>
-          This permanently deletes what we keep about you from our servers and unlinks your Google account. You'll start
+          This permanently deletes what we keep about you from our servers, including the cards you sent (their links stop
+          working), and unlinks your Google account. You'll start
           fresh. While the app is invite-only you'd need a new invite to come back.
         </p>
         {!confirming ? (

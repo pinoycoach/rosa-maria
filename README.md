@@ -114,6 +114,13 @@ No prayer's words are shown to visitors until a person has checked them. Until t
 The prayers' words live in the code (`shared/prayers.ts`) and can't be edited on the desk. If a text is ever
 corrected, its old sign-off stops counting automatically and it goes back to "awaiting review".
 
+**Saints** work the same way: on the desk's **Saints** tab, check each saint's name, feast day and dates against the
+Church's own calendar and sign it off. Only signed-off saints appear as "Saint of the day" on the home page. The
+same tab lists saint names people wrote in card notes that aren't on the list (only the names are kept).
+
+**Prayer cards** work without any extra setup. Whoever opens a card's link sees it without a passcode or account,
+even while the app is locked, so you can test cards with family.
+
 ## Step 5 (optional): the invite-only beta
 
 With this on, the shared passcode is replaced by **Sign in with Google + an invite code**. Every member gets 3
@@ -173,8 +180,10 @@ npm run build
 | `SESSION_SECRET` | Signs visitors' anonymous IDs. Must stay the same, or everyone starts fresh |
 | `APP_PASSCODE` | Locks the app behind a passcode |
 | `GENERAL_RATE_LIMIT_PER_10MIN` | Requests per visitor per 10 minutes. Default 400 |
-| `JEV_API_KEY` | TypeSafe key for JEV, the checker (used from the prayer-cards step). Without it, nothing is flagged |
+| `JEV_API_KEY` | TypeSafe key for JEV, the checker of card notes. Without it, only Rosa Maria's own rules check notes |
 | `JEV_MODEL`, `JEV_BASE_URL` | Override JEV's model (default `jev-latest`) or address |
+| `CARD_DAILY_LIMIT` | Prayer cards one visitor can send per day. Default 30 |
+| `GLOBAL_CARD_DAILY_LIMIT` | Prayer cards everyone together can send per day. Default 3000 |
 | `ADMIN_CODE` | Reviewer code for the review desk (`/#curate`). Without it, the desk is off |
 | `INVITE_ONLY` | `true` turns on the invite-only beta (Google sign-in + invite code) instead of the passcode |
 | `GOOGLE_CLIENT_ID` | The OAuth Web client ID for "Sign in with Google" (public) |

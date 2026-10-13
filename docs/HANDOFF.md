@@ -113,6 +113,20 @@ Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill n
 
 ## 7. Progress checklist (update this in every pull request)
 
+**Notes from steps 4 and 5:**
+- Cards: `shared/cards.ts` (occasions, designs, note rules), `server/cardChecks.ts` (JEV questions),
+  `CardComposer.tsx`, `CardOpenView.tsx`, `CardArt.tsx` (6 drawn designs, no pictures of holy figures). A card is
+  stored with an unguessable 16-character id; `/c/<id>` opens it. Card links, `/api/prayers` and `/api/saints`
+  are readable without the passcode or an invite, so recipients can open cards during the private beta.
+- Card notes: chain letters are refused (kindly); promises, luck and curse wording get a kind suggestion and the
+  sender may keep their note. JEV adds a flag only at 0.6 or more. Occasions only offer signed-off prayers; the
+  Eternal Rest prayer (for pasiyam) and others should be added through the copy-from-source + sign-off process.
+- Saints: `shared/saints.ts` has San Lorenzo Ruiz (28 September, General Roman Calendar) and San Pedro Calungsod
+  (2 April, Philippine calendar), entered with Vatican source links. Their details must be checked and signed off
+  on the desk's Saints tab before they show. Add more only from the General Roman Calendar, the US or Philippine
+  calendars, or the Dicastery. Saint names in card notes that aren't on the list are kept (name only) for review.
+- Not built yet: printing a card on one page (optional in the plan).
+
 **Notes from step 3:**
 - `shared/rosary.ts` holds the bead order and the day-to-Mysteries table (tested: 5 decades, 53 Hail Marys,
   6 Our Fathers). `RosaryView.tsx` is the praying screen; `BeadRing.tsx` draws the beads.
@@ -124,7 +138,7 @@ Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill n
 **Notes from step 2:**
 - The prayers are in `shared/prayers.ts`, copied unchanged from `docs/rosary-basics.md` (a test checks every word).
   Each names its source (USCCB, How to Pray the Rosary) and a link.
-- Sign-offs are stored in Firestore (`prayerReviews`), each tied to a fingerprint of the exact words, the reviewer's
+- Sign-offs are stored in Firestore (`reviews`), each tied to a fingerprint of the exact words, the reviewer's
   name and the date. Editing a text cancels its sign-off. `GET /api/prayers` sends the words only for signed-off
   prayers. Step 3 should read prayers from there and show "awaiting review" for the rest.
 - The quote library, Wikiquote checks and bulk approval from Inspire were removed; the review desk is now prayers
@@ -147,7 +161,7 @@ Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill n
 - [ ] 2a. English prayers checked and signed off by a person on the review desk
 - [ ] 2b. Filipino prayer texts from an official source, reviewed
 - [x] 3. Pray the Rosary (English; Filipino toggle shows "soon" until 2b)
-- [ ] 4. Prayer cards
-- [ ] 5. Verified saints + saint of the day
+- [x] 4. Prayer cards (printing a card is not built yet; optional)
+- [x] 5. Verified saints + saint of the day (built; the 2 saints still need a person's sign-off)
 - [ ] Own Google Cloud project set up and first deploy done
 - [ ] About page dedication (Napoleon's words)

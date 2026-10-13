@@ -37,9 +37,17 @@ export default {
       },
       keyframes: {
         'fade-in': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'none' } },
+        'card-in': {
+          '0%': { opacity: '0', transform: 'translateY(18px) scale(0.96) rotate(-1deg)' },
+          '100%': { opacity: '1', transform: 'none' },
+        },
+        float: { '0%, 100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-4px)' } },
       },
       animation: {
         'fade-in': 'fade-in 0.4s ease-out both',
+        'card-in': 'card-in 1.1s cubic-bezier(0.2, 0.7, 0.2, 1) both',
+        float: 'float 5s ease-in-out 1.1s infinite',
+        'fade-in-late': 'fade-in 0.8s ease-out 0.9s both',
       },
     },
   },

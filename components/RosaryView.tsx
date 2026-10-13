@@ -14,7 +14,10 @@ const StartScreen: React.FC<{
   awaiting: number | null;
   onBegin: () => void;
   onBack: () => void;
-}> = ({ set, onSet, fatima, onFatima, awaiting, onBegin, onBack }) => {
+  /** "Pray a decade with me": which decade (0..4), or undefined for the whole Rosary. */
+  decade?: number;
+  onDecade?: (d: number) => void;
+}> = ({ set, onSet, fatima, onFatima, awaiting, onBegin, onBack, decade, onDecade }) => {
   const today = mysteriesFor(new Date());
   return (
     <div className="max-w-xl mx-auto space-y-6 animate-fade-in">
@@ -22,15 +25,27 @@ const StartScreen: React.FC<{
         ← Back
       </button>
       <div className="space-y-1">
-        <p className="text-gray-600">{DAYS[new Date().getDay()]}</p>
+        <p className="text-gray-600">{decade !== undefined ? 'Pray a decade' : DAYS[new Date().getDay()]}</p>
         <h1 className="font-serif text-3xl text-marian-800">{MYSTERIES[set].name}</h1>
         {set === today && <p className="text-gray-600">Today's Mysteries</p>}
       </div>
-      <ol className="space-y-1.5 font-serif text-xl text-ink list-decimal pl-6">
-        {MYSTERIES[set].mysteries.map((m) => (
-          <li key={m}>{m}</li>
-        ))}
-      </ol>
+      {decade === undefined ? (
+        <ol className="space-y-1.5 font-serif text-xl text-ink list-decimal pl-6">
+          {MYSTERIES[set].mysteries.map((m) => (
+            <li key={m}>{m}</li>
+          ))}
+        </ol>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-gray-700">One decade: the Mystery, an Our Father, ten Hail Marys and a Glory Be. Choose the Mystery:</p>
+          {MYSTERIES[set].mysteries.map((m, i) => (
+            <label key={m} className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer bg-white ${i === decade ? 'border-marian-500' : 'border-marian-100'}`}>
+              <input type="radio" name="decade" checked={i === decade} onChange={() => onDecade?.(i)} />
+              <span className="font-serif text-lg text-ink">{m}</span>
+            </label>
+          ))}
+        </div>
+      )}
       <div className="space-y-2">
         <p className="text-sm text-gray-600">Pray other Mysteries instead:</p>
         <div className="flex flex-wrap gap-2">
@@ -65,13 +80,14 @@ const StartScreen: React.FC<{
 };
 
 // Pray the Rosary: today's Mysteries, bead by bead. Tap anywhere to move on. No sign-in needed.
-export const RosaryView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+export const RosaryView: React.FC<{ onBack: () => void; oneDecade?: boolean }> = ({ onBack, oneDecade }) => {
   const [set, setSet] = useState<MysterySet>(() => mysteriesFor(new Date()));
   const [fatima, setFatima] = useState(true);
+  const [decade, setDecade] = useState(0);
   const [prayers, setPrayers] = useState<Map<string, PrayerView> | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [index, setIndex] = useState<number | null>(null); // null: not started
-  const steps = useMemo(() => rosarySteps(set, { fatima }), [set, fatima]);
+  const steps = useMemo(() => rosarySteps(set, { fatima, decade: oneDecade ? decade : undefined }), [set, fatima, oneDecade, decade]);
 
   useEffect(() => {
     listPrayers()
@@ -103,7 +119,17 @@ export const RosaryView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     return (
       <>
         {loadError && <p className="max-w-xl mx-auto mb-4 text-red-700">{loadError}</p>}
-        <StartScreen set={set} onSet={setSet} fatima={fatima} onFatima={setFatima} awaiting={awaiting} onBegin={() => setIndex(0)} onBack={onBack} />
+        <StartScreen
+          set={set}
+          onSet={setSet}
+          fatima={fatima}
+          onFatima={setFatima}
+          awaiting={awaiting}
+          onBegin={() => setIndex(0)}
+          onBack={onBack}
+          decade={oneDecade ? decade : undefined}
+          onDecade={setDecade}
+        />
       </>
     );
   }
@@ -115,13 +141,15 @@ export const RosaryView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       <div className="fixed inset-0 z-20 bg-cream flex flex-col items-center justify-center p-6 text-center space-y-6 animate-fade-in">
         <BeadRing done={steps.map((s) => s.place)} current={null} className="h-40" />
         <h1 className="font-serif text-3xl text-marian-800">Amen.</h1>
-        <p className="text-lg text-gray-700">You have prayed the {MYSTERIES[set].name}.</p>
+        <p className="text-lg text-gray-700">
+          {oneDecade ? `You have prayed a decade: ${MYSTERIES[set].mysteries[decade]}.` : `You have prayed the ${MYSTERIES[set].name}.`}
+        </p>
         <div className="flex gap-3">
           <button onClick={() => setIndex(0)} className="bg-white border border-marian-200 text-marian-800 font-semibold py-2.5 px-5 rounded-xl">
             Pray again
           </button>
           <button onClick={onBack} className="bg-marian-700 hover:bg-marian-600 text-white font-semibold py-2.5 px-5 rounded-xl">
-            Home
+            {oneDecade ? 'Back to the card' : 'Home'}
           </button>
         </div>
       </div>

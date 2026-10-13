@@ -7,6 +7,7 @@ import { getPasscode, LOCKED_EVENT, NOT_MEMBER_EVENT, resetSession } from './ser
 import { deleteMyData, getStatus, signInWithGoogle, type AccountStatus } from './services/rosaApi';
 import { PrivacyView } from './components/PrivacyView';
 import { PrayersView } from './components/PrayersView';
+import { RosaryView } from './components/RosaryView';
 import { CurateView } from './components/CurateView';
 import { InviteGate } from './components/InviteGate';
 import { InvitesCard } from './components/InvitesCard';
@@ -106,7 +107,8 @@ function App() {
       <Header onHome={goHome} />
       <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
         {view === 'home' && <HomeView onOpen={setView} onPrayers={() => setView('prayers')} />}
-        {(view === 'rosary' || view === 'cards') && <ComingSoonView door={view} onBack={goHome} />}
+        {view === 'rosary' && <RosaryView onBack={goHome} />}
+        {view === 'cards' && <ComingSoonView door={view} onBack={goHome} />}
         {view === 'home' && inviteOnly && status?.member && <InvitesCard key={loadKey} />}
         {view === 'prayers' && <PrayersView onBack={goHome} />}
         {view === 'curate' && <CurateView onBack={goHome} />}

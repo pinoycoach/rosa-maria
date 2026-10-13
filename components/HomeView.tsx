@@ -44,25 +44,17 @@ export const HomeView: React.FC<{ onOpen: (door: Door) => void; onPrayers: () =>
   </div>
 );
 
-const SOON: Record<Door, { title: string; text: string }> = {
-  rosary: {
-    title: 'Pray the Rosary',
-    text: "The guided Rosary is being prepared. Every prayer in it is copied from the Church's approved text and checked by a person before it appears here, so it will come a little later.",
-  },
-  cards: {
-    title: 'Send a prayer card',
-    text: "Prayer cards are being prepared. They'll only ever carry prayers that a person has checked against the Church's approved text.",
-  },
-};
-
-// Until each part is built: an honest note, never a guessed prayer.
-export const ComingSoonView: React.FC<{ door: Door; onBack: () => void }> = ({ door, onBack }) => (
+// Until prayer cards are built: an honest note, never a guessed prayer.
+export const ComingSoonView: React.FC<{ door: Door; onBack: () => void }> = ({ onBack }) => (
   <div className="max-w-xl mx-auto space-y-4 animate-fade-in">
     <button onClick={onBack} className="text-marian-700 hover:text-marian-600 font-semibold">
       ← Back
     </button>
-    <h1 className="font-serif text-3xl text-marian-800">{SOON[door].title}</h1>
-    <p className="text-lg leading-relaxed text-gray-700">{SOON[door].text}</p>
+    <h1 className="font-serif text-3xl text-marian-800">Send a prayer card</h1>
+    <p className="text-lg leading-relaxed text-gray-700">
+      Prayer cards are being prepared. They'll only ever carry prayers that a person has checked against the Church's
+      approved text.
+    </p>
     <p className="text-gray-500">Thank you for waiting.</p>
   </div>
 );

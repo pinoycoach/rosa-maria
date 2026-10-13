@@ -113,6 +113,14 @@ Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill n
 
 ## 7. Progress checklist (update this in every pull request)
 
+**Notes from step 3:**
+- `shared/rosary.ts` holds the bead order and the day-to-Mysteries table (tested: 5 decades, 53 Hail Marys,
+  6 Our Fathers). `RosaryView.tsx` is the praying screen; `BeadRing.tsx` draws the beads.
+- A prayer still awaiting review shows its name and "please pray it from memory or your own prayer book", never
+  guessed words. The Fatima Prayer can be switched off on the start screen.
+- `public/sw.js` keeps the app and `/api/prayers` on the phone (network first), so it works offline once opened.
+- For step 4's "Pray a decade with me", add a one-decade option to `rosarySteps`.
+
 **Notes from step 2:**
 - The prayers are in `shared/prayers.ts`, copied unchanged from `docs/rosary-basics.md` (a test checks every word).
   Each names its source (USCCB, How to Pray the Rosary) and a link.
@@ -138,7 +146,7 @@ Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill n
 - [x] 2. Locked prayer library built (8 English prayers, review desk at `/#curate`)
 - [ ] 2a. English prayers checked and signed off by a person on the review desk
 - [ ] 2b. Filipino prayer texts from an official source, reviewed
-- [ ] 3. Pray the Rosary
+- [x] 3. Pray the Rosary (English; Filipino toggle shows "soon" until 2b)
 - [ ] 4. Prayer cards
 - [ ] 5. Verified saints + saint of the day
 - [ ] Own Google Cloud project set up and first deploy done

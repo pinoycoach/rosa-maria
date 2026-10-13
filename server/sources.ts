@@ -119,7 +119,7 @@ export function classifyWikiquote(wikitext: string, text: string): Exclude<Wikiq
 }
 
 // Wikimedia asks API users to go slowly and to say who they are. One lookup at a time.
-const USER_AGENT = "InspireEngine/1.0 (https://github.com/pinoycoach/inspire-build-ship-release; quote source check)";
+const USER_AGENT = "RosaMaria/1.0 (https://github.com/pinoycoach/rosa-maria; source check)";
 let queue: Promise<unknown> = Promise.resolve();
 const oneAtATime = <T>(fn: () => Promise<T>): Promise<T> => {
   const next = queue.then(fn, fn);

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { curatorBeta, curatorInviteFromWaitlist, curatorMakeInvites, type BetaOverview } from '../services/inspireApi';
+import { curatorBeta, curatorInviteFromWaitlist, curatorMakeInvites, type BetaOverview } from '../services/rosaApi';
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '–');
 
@@ -107,7 +107,6 @@ export const CuratorBeta: React.FC = () => {
                 <th className="py-1 pr-3">Name</th>
                 <th className="py-1 pr-3">Joined</th>
                 <th className="py-1 pr-3">Invited by</th>
-                <th className="py-1">Streak</th>
               </tr>
             </thead>
             <tbody>
@@ -119,7 +118,6 @@ export const CuratorBeta: React.FC = () => {
                   </td>
                   <td className="py-1.5 pr-3 text-gray-300">{m.member ? day(m.since) : <span className="text-amber-300">no invite yet</span>}</td>
                   <td className="py-1.5 pr-3 text-gray-300">{m.invitedBy || '–'}</td>
-                  <td className="py-1.5 text-gray-300">{m.streak}d</td>
                 </tr>
               ))}
             </tbody>
@@ -143,7 +141,7 @@ export const CuratorBeta: React.FC = () => {
             </li>
           ))}
         </ul>
-        <p className="text-xs text-gray-500 mt-2">Copy the code and send it to them yourself. Inspire doesn't send emails.</p>
+        <p className="text-xs text-gray-500 mt-2">Copy the code and send it to them yourself. Rosa Maria doesn't send emails.</p>
       </section>
     </div>
   );

@@ -111,7 +111,21 @@ Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill n
   errors; check anything printable fits one page on Letter and A4.
 
 ## 7. Progress checklist (update this in every pull request)
-- [ ] 1. Strip and rename
+
+**Notes from step 1** (for the next session):
+- Removed with their routes and tests: posts, personas, captions, Gemini (image, video, captions, embeddings),
+  the quote Vault and quotes, "How are you today?" and the journal, manifest series and WOOP, streaks /
+  sparks / XP / ranks, Monetize, Auto-Post, the KGL studio. Gemini and Cloud Storage are no longer used, so
+  setup needs neither `GOOGLE_GENAI_USE_VERTEXAI` nor `GCS_BUCKET` for now.
+- `WoopWorksheet.tsx` (print + QR) and `BraggingCardModal.tsx` (shareable image) were tied to removed features
+  and didn't build without them, so they were removed too. For step 4, read them from the first commit
+  (`git show 8ae03b5:components/WoopWorksheet.tsx`) and rebuild what's needed; re-add `qrcode` and
+  `html-to-image` then.
+- The review desk (`/#curate`, `CurateView.tsx`, `server/library.ts`) still works on generic "pieces" with the
+  old dark styling; step 2 turns it into the prayer review desk. Invite codes now start `ROSA-`.
+- The two home-page doors open an honest "being prepared" note until steps 3 and 4 are built.
+
+- [x] 1. Strip and rename
 - [ ] 2. Locked prayer library (English reviewed)
 - [ ] 2b. Filipino prayer texts from an official source, reviewed
 - [ ] 3. Pray the Rosary

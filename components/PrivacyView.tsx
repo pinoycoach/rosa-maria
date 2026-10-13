@@ -23,74 +23,48 @@ export const PrivacyView: React.FC<PrivacyViewProps> = ({ onBack, onDeleteMyData
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 text-sm text-gray-300 leading-relaxed">
-      <button onClick={onBack} className="text-indigo-400 hover:text-indigo-300 font-semibold">
+    <div className="max-w-2xl mx-auto space-y-6 text-gray-700 leading-relaxed">
+      <button onClick={onBack} className="text-marian-700 hover:text-marian-600 font-semibold">
         ← Back
       </button>
-      <h1 className="text-2xl font-bold text-white">Privacy &amp; Terms</h1>
+      <h1 className="font-serif text-3xl text-marian-800">Privacy &amp; Terms</h1>
 
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold text-white">What we keep</h2>
+        <h2 className="text-lg font-semibold text-marian-800">What we keep</h2>
         <p>
-          Your browser gets a random, anonymous ID so the app can remember your progress. If you sign in with Google, we
-          keep your name and email address (nothing else from your Google account) to recognise you on every device and,
-          during the invite-only beta, to know who invited whom. With that ID we store:
+          Your browser gets a random, anonymous ID so the app can recognise it. You don't need an account to pray. If you
+          sign in with Google, we keep your name and email address (nothing else from your Google account) to recognise
+          you on every device and, while the app is invite-only, to know who invited whom. We also keep your invite codes
+          and whether they've been used.
         </p>
-        <ul className="list-disc pl-5 space-y-1">
-          <li>your streak, sparks, XP and unlocked series;</li>
-          <li>your brand settings;</li>
-          <li>posts you publish, including their images;</li>
-          <li>custom personas you create;</li>
-          <li>reflections you choose to save to your journal;</li>
-          <li>your invite codes and whether they've been used.</li>
-        </ul>
+        <p>If you join the waitlist, we keep that email address only to send you an invite.</p>
+        <p>We don't sell your data, show ads or charge for praying.</p>
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold text-marian-800">The prayers</h2>
         <p>
-          If you join the waitlist, we keep that email address only to send you an invite.
-        </p>
-        <p>
-          Your prompts and images are sent to Google's Gemini models to create the pictures and captions. We use daily
-          usage counts to keep the free service fair. We don't sell your data or show ads.
-        </p>
-        <p>
-          When you use "How are you today?", what you write is sent to Google (to find and write words that fit) and to
-          TypeSafe's JEV (to check the reply for predictions, promises and made-up quotes). It isn't stored unless you
-          save it to your journal.
+          The official prayers in Rosa Maria are never written or changed by AI. Each one is copied from an approved
+          Church source (such as the Vatican's Compendium of the Catechism, the USCCB or the CBCP), checked by a person,
+          and shown with its source. A prayer that hasn't been checked yet is marked "awaiting review".
         </p>
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold text-white">AI-generated content</h2>
-        <p>
-          Images and captions are made by AI and can be wrong, odd or unoriginal. Quotes are attributed to their
-          authors with a modern reading; check them before you rely on them. Review everything before you post it, and
-          don't use Inspire to create content that is harmful, misleading or that infringes someone else's rights.
-        </p>
-        <p>
-          Reflections are written by AI from a hand-picked library of real, credited words. They are not therapy or
-          medical advice, and Inspire never predicts the future. If you are in crisis, call the NCMH Crisis Hotline at
-          1553 (Philippines) or your local emergency number.
-        </p>
+        <h2 className="text-lg font-semibold text-marian-800">Fair use</h2>
+        <p>Rosa Maria is free. Features may change while it's being built. The service is provided as is.</p>
       </section>
 
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold text-white">Fair use</h2>
+      <section className="space-y-3 p-4 rounded-xl bg-white border border-marian-100">
+        <h2 className="text-lg font-semibold text-marian-800">Delete my data</h2>
         <p>
-          Inspire is free during this preview, with daily limits on images and posts. Features may change. The service
-          is provided as is.
-        </p>
-      </section>
-
-      <section className="space-y-3 p-4 rounded-xl bg-gray-800 border border-gray-700">
-        <h2 className="text-lg font-semibold text-white">Delete my data</h2>
-        <p>
-          This permanently deletes your progress, settings, saved posts, their images, your journal and your personas from our
-          servers, and unlinks your Google account. You'll start fresh. During the invite-only beta you'd need a new
-          invite to come back.
+          This permanently deletes what we keep about you from our servers and unlinks your Google account. You'll start
+          fresh. While the app is invite-only you'd need a new invite to come back.
         </p>
         {!confirming ? (
           <button
             onClick={() => setConfirming(true)}
-            className="bg-red-600 hover:bg-red-500 text-white font-semibold py-2 px-4 rounded-lg"
+            className="bg-red-700 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg"
           >
             Delete my data
           </button>
@@ -99,20 +73,20 @@ export const PrivacyView: React.FC<PrivacyViewProps> = ({ onBack, onDeleteMyData
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="bg-red-600 hover:bg-red-500 text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50"
+              className="bg-red-700 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50"
             >
               {deleting ? 'Deleting…' : 'Yes, delete everything'}
             </button>
             <button
               onClick={() => setConfirming(false)}
               disabled={deleting}
-              className="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg"
+              className="bg-gray-200 hover:bg-gray-300 text-ink font-semibold py-2 px-4 rounded-lg"
             >
               Cancel
             </button>
           </div>
         )}
-        {error && <p className="text-red-300">{error}</p>}
+        {error && <p className="text-red-700">{error}</p>}
       </section>
     </div>
   );

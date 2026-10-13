@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { knownMisattribution, classifyWikiquote, checkWikiquote, needsSourceCheck, sourceFlags, isSourceFlag, authorName } from './sources';
-import { QUOTES_DATABASE } from '../data/quotesDatabase';
 
 test('the known list catches the famous misattributions, only when credited to the wrong person', () => {
   assert.ok(knownMisattribution('The people who are crazy enough to think they can change the world are the ones who do.', 'Steve Jobs (1955–2011)'));
@@ -11,10 +10,6 @@ test('the known list catches the famous misattributions, only when credited to t
   assert.equal(knownMisattribution('The people who are crazy enough to think they can change the world are the ones who do.', 'Apple’s “Think Different” ad (1997)'), null);
   assert.equal(knownMisattribution('Whatever you can do, or dream you can, begin it.', 'John Anster, after Goethe’s Faust (1835)'), null);
   assert.equal(knownMisattribution('We suffer more often in imagination than in reality.', 'Seneca'), null);
-});
-
-test('none of the starter quotes is on the known-misattributions list', () => {
-  for (const q of QUOTES_DATABASE) assert.equal(knownMisattribution(q.originalQuote, q.author), null, q.author);
 });
 
 const PAGE = `Intro text.

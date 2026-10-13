@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   curatorAdd, curatorList, curatorProcess, curatorUpdate, getCuratorCode, setCuratorCode, type CuratorPiece,
-} from '../services/inspireApi';
+} from '../services/rosaApi';
 import { CuratorBeta } from './CuratorBeta';
 import { cleanForBulk } from '../shared/curation';
 
@@ -36,7 +36,7 @@ const parseLines = (raw: string) =>
     .filter((cols) => cols[0] && cols[1])
     .map(([text, author, source, translation]) => ({ text, author, source: source || undefined, translation: translation || undefined }));
 
-// The curator's desk: add pieces, let JEV label them, and approve what Inspire may use.
+// The curator's desk: add pieces, let JEV label them, and approve what Rosa Maria may use.
 export const CurateView: React.FC<CurateViewProps> = ({ onBack }) => {
   const [code, setCode] = useState(getCuratorCode());
   const [codeInput, setCodeInput] = useState('');
@@ -108,7 +108,7 @@ export const CurateView: React.FC<CurateViewProps> = ({ onBack }) => {
   const processAll = () =>
     run('process', async () => {
       const r = await curatorProcess();
-      return `Labeled and indexed ${r.processed}.${r.remaining ? ` ${r.remaining} still waiting: press again.` : ''}`;
+      return `Checked ${r.processed}.${r.remaining ? ` ${r.remaining} still waiting: press again.` : ''}`;
     });
 
   const setStatus = (p: CuratorPiece, status: Tab) => run(p.id, async () => void (await curatorUpdate(p.id, { status })));
@@ -171,9 +171,9 @@ export const CurateView: React.FC<CurateViewProps> = ({ onBack }) => {
       </div>
       {section === 'beta' ? <CuratorBeta /> : (<>
       <div>
-        <h1 className="text-2xl font-bold text-white">Curated library</h1>
+        <h1 className="text-2xl font-bold text-white">Review desk</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Only <b>approved</b> pieces are ever used in replies. JEV labels each piece and flags anything that sounds like a
+          Only <b>approved</b> pieces are ever shown. JEV labels each piece and flags anything that sounds like a
           prediction, sounds preachy, or may be misattributed. You have the final say.
         </p>
         {!jev && <p className="text-sm text-amber-300 mt-2">JEV isn't connected on this server, so pieces won't be labeled or flagged yet.</p>}
@@ -181,7 +181,7 @@ export const CurateView: React.FC<CurateViewProps> = ({ onBack }) => {
 
       {waiting > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl bg-gray-800 border border-gray-700 p-4">
-          <span className="text-sm text-gray-300">{waiting} pieces still need labels or indexing.</span>
+          <span className="text-sm text-gray-300">{waiting} pieces still need checking.</span>
           <button onClick={processAll} disabled={!!busy} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold py-2 px-4 rounded-lg">
             {busy === 'process' ? 'Working…' : 'Label & index now'}
           </button>
@@ -250,13 +250,11 @@ export const CurateView: React.FC<CurateViewProps> = ({ onBack }) => {
             <div className="flex flex-wrap gap-2 text-xs">
               <span className="rounded-full bg-gray-900 px-2 py-1 text-gray-300">{KIND_LABELS[p.kind]}</span>
               {p.labels?.theme && <span className="rounded-full bg-gray-900 px-2 py-1 text-gray-300">theme: {p.labels.theme}</span>}
-              {p.labels?.mood && <span className="rounded-full bg-gray-900 px-2 py-1 text-gray-300">helps: {p.labels.mood}</span>}
               {p.labels && (
                 <span className="rounded-full bg-gray-900 px-2 py-1 text-gray-400">
                   prediction {pct(p.labels.prediction)} · preachy {pct(p.labels.preachy)} · genuine {pct(p.labels.attribution)}
                 </span>
               )}
-              {!p.indexed && <span className="rounded-full bg-gray-900 px-2 py-1 text-amber-300">not indexed</span>}
               {p.sourceCheck && (
                 p.sourceCheck.url ? (
                   <a href={p.sourceCheck.url} target="_blank" rel="noreferrer" className={`rounded-full bg-gray-900 px-2 py-1 underline ${WIKIQUOTE_LABELS[p.sourceCheck.wikiquote].tone}`}>

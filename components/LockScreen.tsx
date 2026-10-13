@@ -23,11 +23,12 @@ export const LockScreen: React.FC<{ onUnlocked: () => void }> = ({ onUnlocked })
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center p-4">
-      <form onSubmit={submit} className="w-full max-w-sm p-6 rounded-2xl bg-gray-800 border border-gray-700 space-y-4">
-        <div>
-          <h1 className="text-xl font-black text-white">Inspire Engine</h1>
-          <p className="text-sm text-gray-400">Private for now. Enter the passcode to continue.</p>
+    <div className="min-h-screen bg-cream text-ink flex items-center justify-center p-4">
+      <form onSubmit={submit} className="w-full max-w-sm p-6 rounded-2xl bg-white border border-marian-100 shadow-sm space-y-4">
+        <div className="text-center">
+          <img src="/icon.svg" alt="" className="w-12 h-12 mx-auto mb-2" />
+          <h1 className="font-serif text-3xl text-marian-800">Rosa Maria</h1>
+          <p className="text-sm text-gray-600">Private for now. Enter the passcode to continue.</p>
         </div>
         <input
           type="password"
@@ -36,13 +37,13 @@ export const LockScreen: React.FC<{ onUnlocked: () => void }> = ({ onUnlocked })
           placeholder="Passcode"
           autoFocus
           autoComplete="current-password"
-          className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500"
+          className="w-full bg-white border border-marian-200 rounded-lg px-4 py-2 text-ink focus:ring-2 focus:ring-marian-500"
         />
-        {error && <p className="text-sm text-red-300">{error}</p>}
+        {error && <p className="text-sm text-red-700">{error}</p>}
         <button
           type="submit"
           disabled={busy || !code.trim()}
-          className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50"
+          className="w-full bg-marian-700 hover:bg-marian-600 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50"
         >
           {busy ? 'Checking…' : 'Unlock'}
         </button>

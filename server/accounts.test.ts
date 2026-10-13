@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { makeCode, normalizeCode, checkRedeem, newInviteRewards, isValidEmail, parseAdminEmails, newInvite } from './accounts';
+import { makeCode, normalizeCode, checkRedeem, isValidEmail, parseAdminEmails, newInvite } from './accounts';
 import { MemoryStore } from './store';
 
 test('invite codes are readable and typed loosely', () => {
   const code = makeCode();
-  assert.match(code, /^INSP-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{2}$/);
+  assert.match(code, /^ROSA-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{2}$/);
   assert.equal(normalizeCode(code.toLowerCase().replace(/-/g, ' ')), code);
-  assert.equal(normalizeCode(code.slice(5).replace('-', '')), code); // without the INSP prefix
-  assert.equal(normalizeCode('INSP-0OIL-11'), null); // ambiguous letters never appear in codes
+  assert.equal(normalizeCode(code.slice(5).replace('-', '')), code); // without the ROSA prefix
+  assert.equal(normalizeCode('ROSA-0OIL-11'), null); // ambiguous letters never appear in codes
   assert.equal(normalizeCode('nope'), null);
 });
 
@@ -28,14 +28,6 @@ test('the store redeems in one step: the second person is refused', async () => 
   assert.deepEqual(await s.redeemInvite(inv.code, 'bob'), { result: 'ok', createdBy: 'alice' });
   assert.equal((await s.redeemInvite(inv.code, 'carol')).result, 'used');
   assert.equal((await s.listInvites('alice', 10))[0].usedBy, 'bob');
-});
-
-test('streak invites come at 7 and 30 days, once each', () => {
-  assert.deepEqual(newInviteRewards(6), { days: [], invites: 0 });
-  assert.deepEqual(newInviteRewards(7), { days: [7], invites: 1 });
-  assert.deepEqual(newInviteRewards(30, [7]), { days: [30], invites: 2 });
-  assert.deepEqual(newInviteRewards(31, [7, 30]), { days: [], invites: 0 });
-  assert.deepEqual(newInviteRewards(30), { days: [7, 30], invites: 3 }); // first sign-in at 30 days earns both
 });
 
 test('linking keeps the first device; another device gets the same user', async () => {

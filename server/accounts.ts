@@ -2,7 +2,7 @@
 // Google sign-in check and the database calls.
 import crypto from "crypto";
 
-/** A Google account, linked to one Inspire user id (the anonymous id it first signed in from). */
+/** A Google account, linked to one Rosa Maria user id (the anonymous id it first signed in from). */
 export interface AccountDoc {
   sub: string; // Google's stable account id
   uid: string;
@@ -35,20 +35,18 @@ export interface Membership {
 }
 
 export const STARTER_INVITES = 3;
-/** Streak days that earn more invites, and how many. Each is given once. */
-export const STREAK_INVITE_REWARDS: Record<number, number> = { 7: 1, 30: 2 };
 
 // No 0/O, 1/I/L: codes get read aloud and typed on phones.
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const pick = (n: number) => Array.from(crypto.randomBytes(n), (b) => ALPHABET[b % ALPHABET.length]).join("");
 
-export const makeCode = () => `INSP-${pick(4)}-${pick(2)}`;
+export const makeCode = () => `ROSA-${pick(4)}-${pick(2)}`;
 
-/** Accepts "insp 7k2q m9", "INSP-7K2Q-M9", "7k2qm9"… and returns the canonical form, or null. */
+/** Accepts "rosa 7k2q m9", "ROSA-7K2Q-M9", "7k2qm9"… and returns the canonical form, or null. */
 export function normalizeCode(input: unknown): string | null {
-  const raw = String(input ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^INSP/, "");
+  const raw = String(input ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^ROSA/, "");
   if (raw.length !== 6 || [...raw].some((c) => !ALPHABET.includes(c))) return null;
-  return `INSP-${raw.slice(0, 4)}-${raw.slice(4)}`;
+  return `ROSA-${raw.slice(0, 4)}-${raw.slice(4)}`;
 }
 
 export const normalizeEmail = (input: unknown) => String(input ?? "").trim().toLowerCase().slice(0, 254);
@@ -73,14 +71,6 @@ export const REDEEM_MESSAGES: Record<Exclude<RedeemResult, "ok">, string> = {
   used: "That invite code has already been used. Ask your friend for another one.",
   own: "That's one of your own invites. Share it with a friend instead.",
 };
-
-/** Streak milestones reached now that weren't rewarded before, and the invites they earn. */
-export function newInviteRewards(streak: number, alreadyRewarded: number[] = []): { days: number[]; invites: number } {
-  const days = Object.keys(STREAK_INVITE_REWARDS)
-    .map(Number)
-    .filter((d) => streak >= d && !alreadyRewarded.includes(d));
-  return { days, invites: days.reduce((n, d) => n + STREAK_INVITE_REWARDS[d], 0) };
-}
 
 export const newInvite = (createdBy: string, note?: string): InviteDoc => ({
   code: makeCode(),

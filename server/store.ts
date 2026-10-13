@@ -1,39 +1,23 @@
-// Where Inspire keeps its data. Firestore in production (only this server can reach it, using the
+// Where Rosa Maria keeps its data. Firestore in production (only this server can reach it, using the
 // Cloud Run identity); an in-memory copy for local runs and tests (DATA_STORE=memory).
-import type { Post, Persona, UserBrandSettings } from '../types';
-import type { TimelessQuote } from '../data/quotesDatabase';
-import type { StoredGamification } from '../shared/gamification';
 import type { LibraryPiece, PieceStatus } from './library';
 import { checkRedeem, type AccountDoc, type InviteDoc, type Membership, type RedeemResult, type WaitlistDoc } from './accounts';
 
 export interface UserDoc {
-  gamification: StoredGamification;
-  brandSettings?: UserBrandSettings;
   /** Set once an invite is redeemed (or for the founder). */
   member?: Membership;
   /** The Google account signed in on this user, for display. */
   account?: { email: string; name: string };
-  /** Streak milestones that already earned invites. */
-  inviteRewardDays?: number[];
   createdAt: string;
   updatedAt: string;
 }
 
-// A saved post. The picture lives in media storage; `imagePath` points at it.
-export type StoredPost = Omit<Post, 'imageUrl' | 'videoUrl'> & { imagePath?: string; createdAt: string };
-
 export interface Store {
   kind: 'firestore' | 'memory';
   getUser(uid: string): Promise<UserDoc | null>;
-  /** Read-modify-write in one transaction, so two quick taps can't double-award. */
+  /** Read-modify-write in one transaction, so two quick taps can't race. */
   updateUser(uid: string, fn: (current: UserDoc | null) => UserDoc): Promise<UserDoc>;
   deleteUser(uid: string): Promise<void>;
-  listPosts(uid: string, limit: number): Promise<StoredPost[]>;
-  addPost(uid: string, post: StoredPost): Promise<void>;
-  listPersonas(uid: string): Promise<Persona[]>;
-  addPersona(uid: string, persona: Persona): Promise<void>;
-  listQuotes(): Promise<TimelessQuote[]>;
-  seedQuotes(quotes: TimelessQuote[]): Promise<number>;
   /** Adds 1 to a daily counter and returns the new count. */
   bumpUsage(key: string): Promise<number>;
   getUsage(key: string): Promise<number>;
@@ -42,10 +26,6 @@ export interface Store {
   putPiece(piece: LibraryPiece): Promise<void>;
   /** Adds pieces whose ids aren't there yet; returns how many were added. */
   seedLibrary(pieces: LibraryPiece[]): Promise<number>;
-  addJournal(uid: string, entry: JournalEntry): Promise<void>;
-  listJournal(uid: string, limit: number): Promise<JournalEntry[]>;
-  /** Removes one of this user's own entries (never another user's). */
-  deleteJournalEntry(uid: string, id: string): Promise<void>;
   getAccount(sub: string): Promise<AccountDoc | null>;
   /** Creates the link unless one exists; returns the link that's stored (the existing one wins). */
   linkAccount(account: AccountDoc): Promise<AccountDoc>;
@@ -62,32 +42,13 @@ export interface Store {
   markWaitlistInvited(email: string, code: string): Promise<void>;
 }
 
-export interface MediaStore {
-  put(path: string, data: Buffer, contentType: string): Promise<void>;
-  get(path: string): Promise<{ data: Buffer; contentType: string } | null>;
-  deletePrefix(prefix: string): Promise<void>;
-}
-
-/** A reflection the person chose to keep. Private to them; "Delete my data" removes it. */
-export interface JournalEntry {
-  id: string;
-  feeling: string;
-  reply?: string;
-  pieces: Array<{ id: string; text: string; translation?: string; author: string }>;
-  createdAt: string;
-}
-
 // ---------- In memory ----------
 
 export class MemoryStore implements Store {
   kind = 'memory' as const;
   private users = new Map<string, UserDoc>();
-  private posts = new Map<string, StoredPost[]>();
-  private personas = new Map<string, Persona[]>();
-  private quotes: TimelessQuote[] = [];
   private usage = new Map<string, number>();
   private library = new Map<string, LibraryPiece>();
-  private journal = new Map<string, JournalEntry[]>();
   private accounts = new Map<string, AccountDoc>();
   private invites = new Map<string, InviteDoc>();
   private waitlist = new Map<string, WaitlistDoc>();
@@ -103,30 +64,6 @@ export class MemoryStore implements Store {
   }
   async deleteUser(uid: string) {
     this.users.delete(uid);
-    this.posts.delete(uid);
-    this.personas.delete(uid);
-    this.journal.delete(uid);
-  }
-  async listPosts(uid: string, limit: number) {
-    return (this.posts.get(uid) || []).slice(0, limit);
-  }
-  async addPost(uid: string, post: StoredPost) {
-    this.posts.set(uid, [post, ...(this.posts.get(uid) || [])]);
-  }
-  async listPersonas(uid: string) {
-    return [...(this.personas.get(uid) || [])];
-  }
-  async addPersona(uid: string, persona: Persona) {
-    this.personas.set(uid, [...(this.personas.get(uid) || []), persona]);
-  }
-  async listQuotes() {
-    return [...this.quotes];
-  }
-  async seedQuotes(quotes: TimelessQuote[]) {
-    const ids = new Set(this.quotes.map((q) => q.id));
-    const fresh = quotes.filter((q) => !ids.has(q.id));
-    this.quotes.push(...fresh);
-    return fresh.length;
   }
   async bumpUsage(key: string) {
     const n = (this.usage.get(key) || 0) + 1;
@@ -150,15 +87,6 @@ export class MemoryStore implements Store {
     const fresh = pieces.filter((p) => !this.library.has(p.id));
     fresh.forEach((p) => this.library.set(p.id, structuredClone(p)));
     return fresh.length;
-  }
-  async addJournal(uid: string, entry: JournalEntry) {
-    this.journal.set(uid, [entry, ...(this.journal.get(uid) || [])]);
-  }
-  async listJournal(uid: string, limit: number) {
-    return (this.journal.get(uid) || []).slice(0, limit);
-  }
-  async deleteJournalEntry(uid: string, id: string) {
-    this.journal.set(uid, (this.journal.get(uid) || []).filter((e) => e.id !== id));
   }
   async getAccount(sub: string) {
     const a = this.accounts.get(sub);
@@ -205,35 +133,12 @@ export class MemoryStore implements Store {
   }
 }
 
-export class MemoryMedia implements MediaStore {
-  private files = new Map<string, { data: Buffer; contentType: string }>();
-  async put(path: string, data: Buffer, contentType: string) {
-    this.files.set(path, { data, contentType });
-  }
-  async get(path: string) {
-    return this.files.get(path) || null;
-  }
-  async deletePrefix(prefix: string) {
-    for (const k of [...this.files.keys()]) if (k.startsWith(prefix)) this.files.delete(k);
-  }
-}
-
 // ---------- Firestore ----------
 
 export async function createFirestoreStore(): Promise<Store> {
   const { Firestore, FieldValue } = await import('@google-cloud/firestore');
   const db = new Firestore({ projectId: process.env.GOOGLE_CLOUD_PROJECT, ignoreUndefinedProperties: true });
   const userRef = (uid: string) => db.collection('users').doc(uid);
-
-  const deleteCollection = async (ref: FirebaseFirestore.CollectionReference) => {
-    for (;;) {
-      const snap = await ref.limit(200).get();
-      if (snap.empty) return;
-      const batch = db.batch();
-      snap.docs.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
-  };
 
   return {
     kind: 'firestore',
@@ -250,38 +155,7 @@ export async function createFirestoreStore(): Promise<Store> {
       });
     },
     async deleteUser(uid) {
-      await deleteCollection(userRef(uid).collection('posts'));
-      await deleteCollection(userRef(uid).collection('personas'));
-      await deleteCollection(userRef(uid).collection('journal'));
       await userRef(uid).delete();
-    },
-    async listPosts(uid, limit) {
-      const snap = await userRef(uid).collection('posts').orderBy('createdAt', 'desc').limit(limit).get();
-      return snap.docs.map((d) => d.data() as StoredPost);
-    },
-    async addPost(uid, post) {
-      await userRef(uid).collection('posts').doc(post.id).set(post);
-    },
-    async listPersonas(uid) {
-      const snap = await userRef(uid).collection('personas').get();
-      return snap.docs.map((d) => d.data() as Persona);
-    },
-    async addPersona(uid, persona) {
-      await userRef(uid).collection('personas').doc(String(persona.id)).set(persona);
-    },
-    async listQuotes() {
-      const snap = await db.collection('quotes').get();
-      return snap.docs.map((d) => d.data() as TimelessQuote).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
-    },
-    async seedQuotes(quotes) {
-      const existing = new Set((await db.collection('quotes').select().get()).docs.map((d) => d.id));
-      const fresh = quotes.filter((q) => !existing.has(q.id));
-      for (let i = 0; i < fresh.length; i += 400) {
-        const batch = db.batch();
-        fresh.slice(i, i + 400).forEach((q) => batch.set(db.collection('quotes').doc(q.id), q));
-        await batch.commit();
-      }
-      return fresh.length;
     },
     async bumpUsage(key) {
       const ref = db.collection('usage').doc(key);
@@ -312,16 +186,6 @@ export async function createFirestoreStore(): Promise<Store> {
         await batch.commit();
       }
       return fresh.length;
-    },
-    async addJournal(uid, entry) {
-      await userRef(uid).collection('journal').doc(entry.id).set(entry);
-    },
-    async listJournal(uid, limit) {
-      const snap = await userRef(uid).collection('journal').orderBy('createdAt', 'desc').limit(limit).get();
-      return snap.docs.map((d) => d.data() as JournalEntry);
-    },
-    async deleteJournalEntry(uid, id) {
-      await userRef(uid).collection('journal').doc(id).delete();
     },
     async getAccount(sub) {
       const snap = await db.collection('accounts').doc(sub).get();
@@ -385,26 +249,6 @@ export async function createFirestoreStore(): Promise<Store> {
     },
     async markWaitlistInvited(email, code) {
       await db.collection('waitlist').doc(email).set({ invitedCode: code }, { merge: true });
-    },
-  };
-}
-
-export async function createGcsMedia(bucketName: string): Promise<MediaStore> {
-  const { Storage } = await import('@google-cloud/storage');
-  const bucket = new Storage().bucket(bucketName);
-  return {
-    async put(path, data, contentType) {
-      await bucket.file(path).save(data, { contentType, resumable: false });
-    },
-    async get(path) {
-      const file = bucket.file(path);
-      const [exists] = await file.exists();
-      if (!exists) return null;
-      const [[data], [meta]] = await Promise.all([file.download(), file.getMetadata()]);
-      return { data, contentType: meta.contentType || 'application/octet-stream' };
-    },
-    async deletePrefix(prefix) {
-      await bucket.deleteFiles({ prefix, force: true });
     },
   };
 }

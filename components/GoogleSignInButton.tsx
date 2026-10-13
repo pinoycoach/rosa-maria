@@ -58,7 +58,7 @@ export const GoogleSignInButton: React.FC<Props> = ({ clientId, onCredential }) 
   return (
     <div>
       <div ref={ref} className="flex justify-center min-h-[44px]" />
-      {error && <p className="text-sm text-red-300 mt-2">{error}</p>}
+      {error && <p className="text-sm text-red-700 mt-2">{error}</p>}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GoogleSignInButton } from './GoogleSignInButton';
-import { joinWaitlist, redeemInvite, signInWithGoogle, type AccountStatus } from '../services/inspireApi';
+import { joinWaitlist, redeemInvite, signInWithGoogle, type AccountStatus } from '../services/rosaApi';
 
 interface Props {
   googleClientId: string | null;
@@ -63,55 +63,56 @@ export const InviteGate: React.FC<Props> = ({ googleClientId, status, onMember, 
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-cream text-ink flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-5">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-black bg-gradient-to-r from-indigo-400 to-pink-400 bg-clip-text text-transparent">Inspire</h1>
-          <p className="text-gray-300">
-            Inspire is <b>invite-only</b> during the beta. Every member gets 3 invites to share.
+          <img src="/icon.svg" alt="" className="w-14 h-14 mx-auto" />
+          <h1 className="font-serif text-4xl text-marian-800">Rosa Maria</h1>
+          <p className="text-gray-700">
+            Rosa Maria is <b>invite-only</b> while we test it. Every member gets 3 invites to share.
           </p>
         </div>
 
-        <div className="rounded-2xl bg-gray-800 border border-gray-700 p-5 space-y-4">
+        <div className="rounded-2xl bg-white border border-marian-100 shadow-sm p-5 space-y-4">
           <div className="space-y-2">
-            <p className="text-sm font-semibold text-white">1. Sign in with Google</p>
+            <p className="font-semibold text-marian-800">1. Sign in with Google</p>
             {signedIn ? (
-              <p className="text-sm text-green-300">Signed in as {status?.email}</p>
+              <p className="text-sm text-emerald-700">Signed in as {status?.email}</p>
             ) : googleClientId ? (
               <GoogleSignInButton clientId={googleClientId} onCredential={onCredential} />
             ) : (
-              <p className="text-sm text-amber-300">Google sign-in isn't set up on this server yet.</p>
+              <p className="text-sm text-amber-700">Google sign-in isn't set up on this server yet.</p>
             )}
-            <p className="text-xs text-gray-500">So your streak, posts and journal follow you to every device.</p>
+            <p className="text-xs text-gray-500">So your invite stays with you on every device.</p>
           </div>
 
           <form onSubmit={redeem} className="space-y-2">
-            <label htmlFor="invite" className="text-sm font-semibold text-white block">2. Your invite code</label>
+            <label htmlFor="invite" className="font-semibold text-marian-800 block">2. Your invite code</label>
             <div className="flex gap-2">
               <input
                 id="invite"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
-                placeholder="INSP-XXXX-XX"
+                placeholder="ROSA-XXXX-XX"
                 autoCapitalize="characters"
                 disabled={!signedIn}
-                className="flex-1 min-w-0 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white tracking-wider uppercase disabled:opacity-50"
+                className="flex-1 min-w-0 bg-white border border-marian-200 rounded-lg px-3 py-2 text-ink tracking-wider uppercase disabled:opacity-50"
               />
               <button
                 type="submit"
                 disabled={!signedIn || !code.trim() || busy === 'code'}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 rounded-lg disabled:opacity-50"
+                className="bg-marian-700 hover:bg-marian-600 text-white font-semibold px-4 rounded-lg disabled:opacity-50"
               >
                 {busy === 'code' ? '…' : 'Join'}
               </button>
             </div>
           </form>
-          {busy === 'google' && <p className="text-sm text-gray-400">Signing you in…</p>}
-          {error && <p className="text-sm text-red-300">{error}</p>}
+          {busy === 'google' && <p className="text-sm text-gray-600">Signing you in…</p>}
+          {error && <p className="text-sm text-red-700">{error}</p>}
         </div>
 
-        <form onSubmit={waitlist} className="rounded-2xl bg-gray-800/60 border border-gray-700 p-5 space-y-2">
-          <label htmlFor="waitlist" className="text-sm font-semibold text-white block">No invite yet? Join the waitlist</label>
+        <form onSubmit={waitlist} className="rounded-2xl bg-white/70 border border-marian-100 p-5 space-y-2">
+          <label htmlFor="waitlist" className="font-semibold text-marian-800 block">No invite yet? Join the waitlist</label>
           <div className="flex gap-2">
             <input
               id="waitlist"
@@ -119,17 +120,17 @@ export const InviteGate: React.FC<Props> = ({ googleClientId, status, onMember, 
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="flex-1 min-w-0 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white"
+              className="flex-1 min-w-0 bg-white border border-marian-200 rounded-lg px-3 py-2 text-ink"
             />
             <button
               type="submit"
               disabled={!email.trim() || busy === 'waitlist'}
-              className="bg-gray-700 hover:bg-gray-600 text-white font-semibold px-4 rounded-lg disabled:opacity-50"
+              className="bg-rosa-100 hover:bg-rosa-200 text-rosa-800 font-semibold px-4 rounded-lg disabled:opacity-50"
             >
               Notify me
             </button>
           </div>
-          {waitlistNote && <p className="text-sm text-gray-300">{waitlistNote}</p>}
+          {waitlistNote && <p className="text-sm text-gray-700">{waitlistNote}</p>}
           <p className="text-xs text-gray-500">We only use your email to send you an invite.</p>
         </form>
       </div>

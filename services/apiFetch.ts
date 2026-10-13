@@ -2,11 +2,11 @@
 // - the passcode, when the server has one (a 401 "Locked" brings the lock screen back);
 // - this browser's anonymous session, created on first use and renewed if the server rejects it.
 
-const PASSCODE_KEY = 'inspire.passcode';
-const SESSION_KEY = 'inspire.session';
-export const LOCKED_EVENT = 'inspire:locked';
+const PASSCODE_KEY = 'rosa.passcode';
+const SESSION_KEY = 'rosa.session';
+export const LOCKED_EVENT = 'rosa:locked';
 /** The beta is invite-only and this browser isn't a member yet. */
-export const NOT_MEMBER_EVENT = 'inspire:not-member';
+export const NOT_MEMBER_EVENT = 'rosa:not-member';
 
 const read = (key: string) => {
   try {
@@ -71,7 +71,7 @@ export const apiFetch = async (url: string, init: RequestInit = {}, retried = fa
   const headers = new Headers(init.headers);
   const code = getPasscode();
   if (code) headers.set('x-app-passcode', code);
-  headers.set('x-inspire-session', await getSession());
+  headers.set('x-rosa-session', await getSession());
   const response = await fetch(url, { ...init, headers });
   if (response.status === 401) {
     const body = await response.clone().json().catch(() => ({}));

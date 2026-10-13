@@ -1,7 +1,5 @@
-// The app's own data: progress, settings, saved posts, quotes and personas (stored by the server).
+// Rosa Maria's own API: account status, the beta, and the reviewer's desk (stored by the server).
 import { apiFetch, setSession } from './apiFetch';
-import type { Post, Persona, UserBrandSettings, UserGamification } from '../types';
-import type { TimelessQuote } from '../data/quotesDatabase';
 
 const call = async <T,>(url: string, init: RequestInit = {}, fallback = 'Something went wrong'): Promise<T> => {
   const res = await apiFetch(url, {
@@ -13,51 +11,7 @@ const call = async <T,>(url: string, init: RequestInit = {}, fallback = 'Somethi
   return data as T;
 };
 
-export type GamificationAction =
-  | { type: 'check-in' }
-  | { type: 'claim-milestone'; day: number }
-  | { type: 'unlock-series'; seriesId: string }
-  | { type: 'complete-series'; seriesId: string }
-  | { type: 'share-bonus' };
-
-export interface MeResponse {
-  gamification: UserGamification;
-  brandSettings: UserBrandSettings | null;
-}
-
-export const getMe = () => call<MeResponse>('/api/me', {}, 'Could not load your progress');
-
-export const runAction = (action: GamificationAction) =>
-  call<{ gamification: UserGamification; message: string }>(
-    '/api/me/action',
-    { method: 'POST', body: JSON.stringify({ action }) },
-    'Could not update your progress'
-  );
-
-export const saveBrandSettings = (settings: UserBrandSettings) =>
-  call<{ brandSettings: UserBrandSettings }>('/api/me/settings', { method: 'PUT', body: JSON.stringify(settings) }, 'Could not save settings');
-
-export const listMyPosts = async () => (await call<{ posts: Post[] }>('/api/me/posts', {}, 'Could not load your posts')).posts;
-
-export const savePost = (post: Omit<Post, 'id'>) =>
-  call<{ post: Post; gamification: UserGamification; message: string }>(
-    '/api/me/posts',
-    { method: 'POST', body: JSON.stringify({ post }) },
-    'Could not save your post'
-  );
-
-export const listQuotes = async () => (await call<{ quotes: TimelessQuote[] }>('/api/quotes', {}, 'Could not load quotes')).quotes;
-
-export const getDailyQuote = async () => (await call<{ quote: TimelessQuote }>('/api/quotes/daily', {}, "Could not load today's quote")).quote;
-
-export const listMyPersonas = async () => (await call<{ personas: Persona[] }>('/api/me/personas', {}, 'Could not load personas')).personas;
-
-export const createMyPersona = async (data: { name: string; description: string; promptFragment: string }) =>
-  (await call<{ persona: Persona }>('/api/me/personas', { method: 'POST', body: JSON.stringify(data) }, 'Could not save the persona')).persona;
-
 export const deleteMyData = () => call<{ deleted: boolean }>('/api/me', { method: 'DELETE' }, 'Could not delete your data');
-
-// ---------- Reflect (the curated library) ----------
 
 export interface LibraryPieceView {
   id: string;
@@ -67,40 +21,9 @@ export interface LibraryPieceView {
   source?: string;
 }
 
-export type ReflectResult =
-  | { crisis: true; message: string; resources: Array<{ name: string; contact: string }> }
-  | {
-      crisis: false;
-      reply: string | null;
-      checked: boolean;
-      mood: string | null;
-      pieces: LibraryPieceView[];
-      gamification?: UserGamification;
-      checkInMessage?: string;
-    };
-
-export const reflect = (text: string) =>
-  call<ReflectResult>('/api/reflect', { method: 'POST', body: JSON.stringify({ text }) }, 'Could not reflect right now');
-
-export interface JournalEntry {
-  id: string;
-  feeling: string;
-  reply?: string;
-  pieces: LibraryPieceView[];
-  createdAt: string;
-}
-
-export const saveToJournal = (feeling: string, reply: string | null, pieceIds: string[]) =>
-  call<{ entry: JournalEntry }>('/api/me/journal', { method: 'POST', body: JSON.stringify({ feeling, reply, pieceIds }) }, 'Could not save');
-
-export const deleteJournalEntry = (id: string) =>
-  call<{ deleted: boolean }>(`/api/me/journal/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Could not delete that entry');
-
-export const listJournal = async () => (await call<{ entries: JournalEntry[] }>('/api/me/journal', {}, 'Could not load your journal')).entries;
-
 // ---------- Curator (needs the curator code) ----------
 
-const CURATOR_KEY = 'inspire.curator';
+const CURATOR_KEY = 'rosa.curator';
 export const getCuratorCode = () => {
   try {
     return sessionStorage.getItem(CURATOR_KEY) || '';
@@ -122,9 +45,8 @@ const curator = <T,>(url: string, init: RequestInit = {}) =>
 export interface CuratorPiece extends LibraryPieceView {
   kind: 'quote' | 'proverb' | 'own' | 'teaching';
   status: 'pending' | 'approved' | 'rejected';
-  labels?: { theme?: string; mood?: string; prediction?: number; preachy?: number; attribution?: number };
+  labels?: { theme?: string; prediction?: number; preachy?: number; attribution?: number };
   flags: string[];
-  indexed: boolean;
   /** A quote credited to a person: needs a human "source checked" tick before bulk approval. */
   needsSourceCheck: boolean;
   sourceChecked?: boolean;
@@ -182,7 +104,7 @@ export const joinWaitlist = (email: string) =>
   call<{ ok: boolean; already: boolean }>('/api/waitlist', { method: 'POST', body: JSON.stringify({ email }) }, 'Could not join the waitlist');
 
 export interface BetaOverview {
-  members: Array<{ name: string; email: string; signedUp: string; member: boolean; since: string | null; invitedBy: string | null; streak: number }>;
+  members: Array<{ name: string; email: string; signedUp: string; member: boolean; since: string | null; invitedBy: string | null }>;
   invites: InviteView[];
   waitlist: Array<{ email: string; createdAt: string; invitedCode?: string }>;
 }

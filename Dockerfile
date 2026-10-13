@@ -1,4 +1,4 @@
-# Inspire Engine: one container that serves the built app and the server.
+# Rosa Maria: one container that serves the built app and the server.
 FROM node:22-slim
 
 WORKDIR /app
@@ -13,5 +13,5 @@ ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-# tsx runs server.ts and the TypeScript modules it imports (server/, shared/, data/).
+# tsx runs server.ts and the TypeScript modules it imports (server/, shared/).
 CMD ["npm", "start"]

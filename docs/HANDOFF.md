@@ -94,8 +94,9 @@ See `docs/rosary-basics.md` section 1. In short:
 Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill never mix with Inspire's.
 - Follow `README.md` Steps 1–3 (from the Inspire copy) with these changes: a new project, the service name
   `rosa-maria`, secret names starting `rosa-` (e.g. `rosa-session-secret`, `rosa-curator-code`,
-  `rosa-jev-key`), and a new storage bucket. Region `asia-southeast1` is fine; `us-west1` is closer to most
-  Filipino Americans — ask Napoleon.
+  `rosa-jev-key`). Region: **`us-west1` (Oregon)**, Napoleon's choice: in the US, close to California
+  where most Filipino Americans live, on the cheaper price tier, and on the Pacific side for families in the
+  Philippines and elsewhere. A storage bucket isn't needed until something stores files.
 - Settings (names only; values go in Secret Manager or the deploy command, never in the code or chat):
   `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GCS_BUCKET`, `SESSION_SECRET`,
   `ADMIN_CODE`, `JEV_API_KEY`, `JEV_BASE_URL`, `INVITE_ONLY`, `GOOGLE_CLIENT_ID`, `ADMIN_EMAILS`.

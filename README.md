@@ -29,7 +29,7 @@ Create a **new** project for Rosa Maria first (Cloud Console → project picker 
 
 ```bash
 PROJECT=YOUR_PROJECT_ID
-REGION=us-west1   # closest to most Filipino Americans; asia-southeast1 is closer to the Philippines
+REGION=us-west1   # Oregon: close to California, the cheaper US price tier, and on the Pacific side for the Philippines
 gcloud config set project $PROJECT
 gcloud services enable firestore.googleapis.com run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
 

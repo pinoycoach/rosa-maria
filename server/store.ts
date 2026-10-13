@@ -1,6 +1,6 @@
 // Where Rosa Maria keeps its data. Firestore in production (only this server can reach it, using the
 // Cloud Run identity); an in-memory copy for local runs and tests (DATA_STORE=memory).
-import type { LibraryPiece, PieceStatus } from './library';
+import type { PrayerReview } from './reviews';
 import { checkRedeem, type AccountDoc, type InviteDoc, type Membership, type RedeemResult, type WaitlistDoc } from './accounts';
 
 export interface UserDoc {
@@ -21,11 +21,10 @@ export interface Store {
   /** Adds 1 to a daily counter and returns the new count. */
   bumpUsage(key: string): Promise<number>;
   getUsage(key: string): Promise<number>;
-  listLibrary(status?: PieceStatus): Promise<LibraryPiece[]>;
-  getPiece(id: string): Promise<LibraryPiece | null>;
-  putPiece(piece: LibraryPiece): Promise<void>;
-  /** Adds pieces whose ids aren't there yet; returns how many were added. */
-  seedLibrary(pieces: LibraryPiece[]): Promise<number>;
+  listPrayerReviews(): Promise<PrayerReview[]>;
+  /** One review per prayer: a new one replaces the old. */
+  putPrayerReview(review: PrayerReview): Promise<void>;
+  deletePrayerReview(prayerId: string): Promise<void>;
   getAccount(sub: string): Promise<AccountDoc | null>;
   /** Creates the link unless one exists; returns the link that's stored (the existing one wins). */
   linkAccount(account: AccountDoc): Promise<AccountDoc>;
@@ -48,7 +47,7 @@ export class MemoryStore implements Store {
   kind = 'memory' as const;
   private users = new Map<string, UserDoc>();
   private usage = new Map<string, number>();
-  private library = new Map<string, LibraryPiece>();
+  private reviews = new Map<string, PrayerReview>();
   private accounts = new Map<string, AccountDoc>();
   private invites = new Map<string, InviteDoc>();
   private waitlist = new Map<string, WaitlistDoc>();
@@ -73,20 +72,14 @@ export class MemoryStore implements Store {
   async getUsage(key: string) {
     return this.usage.get(key) || 0;
   }
-  async listLibrary(status?: PieceStatus) {
-    return [...this.library.values()].filter((p) => !status || p.status === status).map((p) => structuredClone(p));
+  async listPrayerReviews() {
+    return [...this.reviews.values()].map((r) => ({ ...r }));
   }
-  async getPiece(id: string) {
-    const p = this.library.get(id);
-    return p ? structuredClone(p) : null;
+  async putPrayerReview(review: PrayerReview) {
+    this.reviews.set(review.prayerId, { ...review });
   }
-  async putPiece(piece: LibraryPiece) {
-    this.library.set(piece.id, structuredClone(piece));
-  }
-  async seedLibrary(pieces: LibraryPiece[]) {
-    const fresh = pieces.filter((p) => !this.library.has(p.id));
-    fresh.forEach((p) => this.library.set(p.id, structuredClone(p)));
-    return fresh.length;
+  async deletePrayerReview(prayerId: string) {
+    this.reviews.delete(prayerId);
   }
   async getAccount(sub: string) {
     const a = this.accounts.get(sub);
@@ -165,27 +158,14 @@ export async function createFirestoreStore(): Promise<Store> {
     async getUsage(key) {
       return ((await db.collection('usage').doc(key).get()).data()?.count as number) || 0;
     },
-    async listLibrary(status) {
-      const ref = db.collection('library');
-      const snap = await (status ? ref.where('status', '==', status) : ref).get();
-      return snap.docs.map((d) => d.data() as LibraryPiece);
+    async listPrayerReviews() {
+      return (await db.collection('prayerReviews').get()).docs.map((d) => d.data() as PrayerReview);
     },
-    async getPiece(id) {
-      const snap = await db.collection('library').doc(id).get();
-      return snap.exists ? (snap.data() as LibraryPiece) : null;
+    async putPrayerReview(review) {
+      await db.collection('prayerReviews').doc(review.prayerId).set(review);
     },
-    async putPiece(piece) {
-      await db.collection('library').doc(piece.id).set(piece);
-    },
-    async seedLibrary(pieces) {
-      const existing = new Set((await db.collection('library').select().get()).docs.map((d) => d.id));
-      const fresh = pieces.filter((p) => !existing.has(p.id));
-      for (let i = 0; i < fresh.length; i += 400) {
-        const batch = db.batch();
-        fresh.slice(i, i + 400).forEach((p) => batch.set(db.collection('library').doc(p.id), p));
-        await batch.commit();
-      }
-      return fresh.length;
+    async deletePrayerReview(prayerId) {
+      await db.collection('prayerReviews').doc(prayerId).delete();
     },
     async getAccount(sub) {
       const snap = await db.collection('accounts').doc(sub).get();

@@ -1,4 +1,4 @@
-// Rosa Maria's own API: account status, the beta, and the reviewer's desk (stored by the server).
+// Rosa Maria's own API: the prayers, account status, the beta and the review desk.
 import { apiFetch, setSession } from './apiFetch';
 
 const call = async <T,>(url: string, init: RequestInit = {}, fallback = 'Something went wrong'): Promise<T> => {
@@ -13,15 +13,20 @@ const call = async <T,>(url: string, init: RequestInit = {}, fallback = 'Somethi
 
 export const deleteMyData = () => call<{ deleted: boolean }>('/api/me', { method: 'DELETE' }, 'Could not delete your data');
 
-export interface LibraryPieceView {
-  id: string;
-  text: string;
-  translation?: string;
-  author: string;
-  source?: string;
-}
+// ---------- Prayers ----------
 
-// ---------- Curator (needs the curator code) ----------
+/** A prayer as visitors see it: the words only once a person has checked them. */
+export type PrayerView = {
+  id: string;
+  title: string;
+  language: 'en' | 'fil';
+  source: string;
+  sourceUrl: string;
+} & ({ status: 'reviewed'; text: string; reviewedBy: string; reviewedOn: string } | { status: 'awaiting-review' });
+
+export const listPrayers = async () => (await call<{ prayers: PrayerView[] }>('/api/prayers', {}, 'Could not load the prayers')).prayers;
+
+// ---------- Review desk (needs the reviewer code) ----------
 
 const CURATOR_KEY = 'rosa.curator';
 export const getCuratorCode = () => {
@@ -40,32 +45,35 @@ export const setCuratorCode = (code: string) => {
   }
 };
 const curator = <T,>(url: string, init: RequestInit = {}) =>
-  call<T>(url, { ...init, headers: { 'x-admin-code': getCuratorCode(), ...(init.headers || {}) } }, 'Curator request failed');
+  call<T>(url, { ...init, headers: { 'x-admin-code': getCuratorCode(), ...(init.headers || {}) } }, 'Review desk request failed');
 
-export interface CuratorPiece extends LibraryPieceView {
-  kind: 'quote' | 'proverb' | 'own' | 'teaching';
-  status: 'pending' | 'approved' | 'rejected';
-  labels?: { theme?: string; prediction?: number; preachy?: number; attribution?: number };
-  flags: string[];
-  /** A quote credited to a person: needs a human "source checked" tick before bulk approval. */
-  needsSourceCheck: boolean;
-  sourceChecked?: boolean;
-  sourceCheck?: { wikiquote: 'found' | 'unsourced' | 'misattributed' | 'not-found' | 'unavailable'; url?: string; known?: string; checkedAt: string };
-  createdAt: string;
+/** A prayer as the reviewer sees it on the desk. */
+export interface DeskPrayer {
+  id: string;
+  title: string;
+  language: 'en' | 'fil';
+  text: string;
+  source: string;
+  sourceUrl: string;
+  /** Fingerprint of the words shown; sent back with a sign-off. */
+  textHash: string;
+  status: 'reviewed' | 'awaiting-review';
+  reviewedBy: string | null;
+  reviewedOn: string | null;
+  /** It was signed off once, but its words have changed since. */
+  changedSinceReview: boolean;
 }
 
-export const curatorList = () => curator<{ pieces: CuratorPiece[]; waiting: number; jev: boolean }>('/api/admin/library');
+export const deskPrayers = async () => (await curator<{ prayers: DeskPrayer[] }>('/api/admin/prayers')).prayers;
 
-export const curatorAdd = (
-  kind: CuratorPiece['kind'],
-  pieces: Array<{ text: string; author: string; source?: string; translation?: string }>
-) => curator<{ added: number }>('/api/admin/library', { method: 'POST', body: JSON.stringify({ kind, pieces }) });
+export const markReviewed = async (p: DeskPrayer, reviewedBy: string) =>
+  (await curator<{ prayer: DeskPrayer }>(`/api/admin/prayers/${encodeURIComponent(p.id)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewedBy, comparedWordForWord: true, textHash: p.textHash }),
+  })).prayer;
 
-export const curatorProcess = () =>
-  curator<{ processed: number; remaining: number; jev: boolean }>('/api/admin/library/process', { method: 'POST' });
-
-export const curatorUpdate = (id: string, changes: Partial<Pick<CuratorPiece, 'status' | 'text' | 'author' | 'source' | 'translation' | 'sourceChecked'>>) =>
-  curator<{ piece: CuratorPiece }>(`/api/admin/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) });
+export const undoReview = async (p: DeskPrayer) =>
+  (await curator<{ prayer: DeskPrayer }>(`/api/admin/prayers/${encodeURIComponent(p.id)}/review`, { method: 'DELETE' })).prayer;
 
 // ---------- Beta: sign-in, invites, waitlist ----------
 

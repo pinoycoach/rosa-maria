@@ -6,9 +6,8 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { MemoryStore, createFirestoreStore, type Store, type UserDoc } from "./server/store";
-import { askJev, jevConfigured } from "./server/jev";
-import { KINDS, labelQuestions, applyLabels, labelFlags, NOT_LABELED, pieceState, type LibraryPiece, type PieceStatus } from "./server/library";
-import { knownMisattribution, checkWikiquote, needsSourceCheck, sourceFlags, isSourceFlag, sourceSaysWrong, type SourceCheck } from "./server/sources";
+import { PRAYERS, prayerById } from "./shared/prayers";
+import { textHash, publicPrayer, deskPrayer, cleanReviewer, type PrayerReview } from "./server/reviews";
 import { createSessions } from "./server/session";
 import {
   STARTER_INVITES, REDEEM_MESSAGES, newInvite, normalizeCode, normalizeEmail, isValidEmail, parseAdminEmails,
@@ -143,11 +142,9 @@ setInterval(() => {
   for (const [k, v] of hits) if (!v.some((t) => now - t < WINDOW_MS)) hits.delete(k);
 }, WINDOW_MS).unref();
 
-/** Where credited sayings are looked up. "off" turns the lookup off; tests point it at a stand-in. */
-const WIKIQUOTE_BASE_URL = process.env.WIKIQUOTE_BASE_URL ?? "https://en.wikiquote.org";
 
 const OPEN_PATHS = new Set(["/api/config", "/api/unlock"]);
-const SESSION_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/waitlist"]);
+const SESSION_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/waitlist", "/api/prayers"]);
 // Reachable before you're a member (to sign in, redeem an invite or join the waitlist).
 const MEMBER_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/me/status", "/api/auth/google", "/api/invites/redeem", "/api/waitlist"]);
 
@@ -175,7 +172,7 @@ app.use("/api", (req, res, next) => {
   if (overLimit(`all:${who}`, GENERAL_RATE_LIMIT)) {
     return res.status(429).json({ error: "Too many requests. Please wait a few minutes and try again." });
   }
-  // The curator area has its own code; everything else needs a member once the beta is invite-only.
+  // The review desk has its own code; everything else needs a member once the beta is invite-only.
   if (INVITE_ONLY && !MEMBER_FREE.has(p) && !p.startsWith("/api/admin")) {
     isMember(req.uid || "")
       .then((ok) => (ok ? next() : res.status(403).json({ error: "Rosa Maria is invite-only during the beta.", invite: "required" })))
@@ -228,32 +225,27 @@ app.delete("/api/me", async (req, res) => {
   }
 });
 
-// ---------- Reviewer's library: JEV checks, a person decides ----------
+// ---------- Prayers: shown only once a person has checked the exact words ----------
 
-/** The list and Wikiquote's view of who really said it. */
-async function checkSource(p: LibraryPiece): Promise<SourceCheck> {
-  const known = knownMisattribution(p.text, p.author);
-  const wq = await checkWikiquote(p.text, p.author, WIKIQUOTE_BASE_URL);
-  return { wikiquote: wq.result, ...(wq.url ? { url: wq.url } : {}), ...(known ? { known: known.truth } : {}), checkedAt: new Date().toISOString() };
-}
+// Reviews change rarely and are read on every visit: keep them for a minute.
+let reviewCache: { at: number; reviews: Map<string, PrayerReview> } | null = null;
+const currentReviews = async () => {
+  if (!reviewCache || Date.now() - reviewCache.at > 60_000) {
+    const list = await store.listPrayerReviews();
+    reviewCache = { at: Date.now(), reviews: new Map(list.map((r) => [r.prayerId, r])) };
+  }
+  return reviewCache.reviews;
+};
 
-/** Labels (JEV) and checks the source of a piece. `force` redoes both, after an edit. */
-async function processPiece(piece: LibraryPiece, force = false): Promise<LibraryPiece> {
-  const next = { ...piece };
-  if (force || !next.labels) {
-    const { labels } = applyLabels(await askJev(pieceState(next), labelQuestions()));
-    if (labels) next.labels = labels;
+app.get("/api/prayers", async (_req, res) => {
+  try {
+    const reviews = await currentReviews();
+    res.json({ prayers: PRAYERS.map((p) => publicPrayer(p, reviews)) });
+  } catch (err: any) {
+    console.error("prayers:", err);
+    res.status(500).json({ error: "Could not load the prayers." });
   }
-  // Flags are rebuilt from the labels each time, so a stricter rule reaches pieces labeled before it.
-  next.flags = [...(next.labels ? labelFlags(next.labels) : [NOT_LABELED]), ...next.flags.filter(isSourceFlag)];
-  if (needsSourceCheck(next) && (force || !next.sourceCheck || next.sourceCheck.wikiquote === "unavailable")) {
-    next.sourceCheck = await checkSource(next);
-    next.flags = [...next.flags.filter((f) => !isSourceFlag(f)), ...sourceFlags(next.sourceCheck)];
-    // Wrongly credited: take it out of use until a person looks, unless they already vouched for it.
-    if (next.status === "approved" && !next.sourceChecked && sourceSaysWrong(next.sourceCheck)) next.status = "pending";
-  }
-  return next;
-}
+});
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -269,106 +261,57 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
-// ---------- Curator (ADMIN_CODE): import, review, approve ----------
+// ---------- Review desk (ADMIN_CODE) ----------
 
 app.use("/api/admin", (req, res, next) => {
-  if (!ADMIN_CODE) return res.status(404).json({ error: "Curating is switched off on this server." });
-  if (!secretMatches(req.get("x-admin-code"), ADMIN_CODE)) return res.status(403).json({ error: "That curator code isn't right." });
+  if (!ADMIN_CODE) return res.status(404).json({ error: "The review desk is switched off on this server." });
+  if (!secretMatches(req.get("x-admin-code"), ADMIN_CODE)) return res.status(403).json({ error: "That reviewer code isn't right." });
   next();
 });
 
-const curatorPiece = (p: LibraryPiece) => ({ ...p, needsSourceCheck: needsSourceCheck(p) });
-const STATUS_ORDER: Record<PieceStatus, number> = { pending: 0, approved: 1, rejected: 2 };
-const needsWork = (p: LibraryPiece) => !p.labels || (needsSourceCheck(p) && !p.sourceCheck);
-
-app.get("/api/admin/library", async (_req, res) => {
+app.get("/api/admin/prayers", async (_req, res) => {
   try {
-    const pieces = (await store.listLibrary()).sort(
-      (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.createdAt.localeCompare(a.createdAt)
-    );
-    res.json({
-      pieces: pieces.map(curatorPiece),
-      waiting: pieces.filter((p) => p.status !== "rejected" && needsWork(p)).length,
-      jev: jevConfigured(),
-    });
+    const reviews = new Map((await store.listPrayerReviews()).map((r) => [r.prayerId, r]));
+    res.json({ prayers: PRAYERS.map((p) => deskPrayer(p, reviews)) });
   } catch (err: any) {
-    console.error("admin library:", err);
-    res.status(500).json({ error: "Could not load the library." });
+    console.error("admin prayers:", err);
+    res.status(500).json({ error: "Could not load the prayers." });
   }
 });
 
-const cleanPiece = (raw: any) => ({
-  text: String(raw?.text || "").trim().slice(0, 800),
-  translation: String(raw?.translation || "").trim().slice(0, 800) || undefined,
-  author: String(raw?.author || "").trim().slice(0, 120),
-  source: String(raw?.source || "").trim().slice(0, 200) || undefined,
-});
-
-app.post("/api/admin/library", async (req, res) => {
-  const raw = (Array.isArray(req.body?.pieces) ? req.body.pieces : []).slice(0, 100);
-  const kind = KINDS.has(req.body?.kind) ? req.body.kind : "quote";
-  const fresh: LibraryPiece[] = raw
-    .map(cleanPiece)
-    .filter((p: ReturnType<typeof cleanPiece>) => p.text && p.author)
-    .map((p: ReturnType<typeof cleanPiece>) => ({
-      ...p,
-      id: `lib-${crypto.randomBytes(6).toString("hex")}`,
-      kind,
-      status: "pending" as const,
-      flags: [],
-      createdAt: new Date().toISOString(),
-    }));
-  if (!fresh.length) return res.status(400).json({ error: "Nothing to add. Each line needs the words and who said them." });
+/**
+ * A person signs off a prayer. They must say they compared it word for word, and send the fingerprint of the
+ * words they were shown, so a sign-off can never land on words they didn't see.
+ */
+app.post("/api/admin/prayers/:id/review", async (req, res) => {
+  const prayer = prayerById(String(req.params.id));
+  if (!prayer) return res.status(404).json({ error: "That prayer isn't in the library." });
+  const b = req.body || {};
+  const reviewedBy = cleanReviewer(b.reviewedBy);
+  if (!reviewedBy) return res.status(400).json({ error: "Write the name of the person who checked it." });
+  if (b.comparedWordForWord !== true) return res.status(400).json({ error: "Tick the box to confirm you compared it word for word." });
+  if (b.textHash !== textHash(prayer.text)) return res.status(409).json({ error: "This prayer's words have changed since you opened it. Reload and check it again." });
+  const review: PrayerReview = { prayerId: prayer.id, textHash: textHash(prayer.text), reviewedBy, reviewedOn: new Date().toISOString().slice(0, 10) };
   try {
-    const done = await mapLimit(fresh, 4, (p) => processPiece(p));
-    await mapLimit(done, 8, (p) => store.putPiece(p));
-    res.json({ added: done.length });
+    await store.putPrayerReview(review);
+    reviewCache = null;
+    res.json({ prayer: deskPrayer(prayer, new Map([[prayer.id, review]])) });
   } catch (err: any) {
-    console.error("admin add:", err);
-    res.status(500).json({ error: "Could not add those pieces." });
+    console.error("review prayer:", err);
+    res.status(500).json({ error: "Could not save the review." });
   }
 });
 
-app.post("/api/admin/library/process", async (_req, res) => {
+app.delete("/api/admin/prayers/:id/review", async (req, res) => {
+  const prayer = prayerById(String(req.params.id));
+  if (!prayer) return res.status(404).json({ error: "That prayer isn't in the library." });
   try {
-    const todo = (await store.listLibrary()).filter((p) => p.status !== "rejected" && needsWork(p));
-    const batch = todo.slice(0, 40);
-    const done = await mapLimit(batch, 4, (p) => processPiece(p));
-    await mapLimit(done, 8, (p) => store.putPiece(p));
-    res.json({ processed: done.length, remaining: todo.length - batch.length, jev: jevConfigured() });
+    await store.deletePrayerReview(prayer.id);
+    reviewCache = null;
+    res.json({ prayer: deskPrayer(prayer, new Map()) });
   } catch (err: any) {
-    console.error("admin process:", err);
-    res.status(500).json({ error: "Could not check the library." });
-  }
-});
-
-app.patch("/api/admin/library/:id", async (req, res) => {
-  try {
-    const piece = await store.getPiece(String(req.params.id));
-    if (!piece) return res.status(404).json({ error: "That piece isn't in the library." });
-    const b = req.body || {};
-    let next: LibraryPiece = { ...piece };
-    const edits = cleanPiece({ ...piece, ...b });
-    const changed = edits.text !== piece.text || edits.translation !== piece.translation || edits.author !== piece.author || edits.source !== piece.source;
-    if (!edits.text || !edits.author) return res.status(400).json({ error: "A piece needs its words and who said them." });
-    next = { ...next, ...edits };
-    // The tick vouches for these exact words and credit: editing either clears it unless it's ticked again.
-    if (typeof b.sourceChecked === "boolean") next.sourceChecked = b.sourceChecked;
-    else if (edits.text !== piece.text || edits.author !== piece.author) next.sourceChecked = false;
-    if (["pending", "approved", "rejected"].includes(b.status)) {
-      next.status = b.status;
-      next.reviewedAt = new Date().toISOString();
-    }
-    if (changed || (next.status === "approved" && needsWork(next))) {
-      const status = next.status;
-      next = await processPiece(next, changed);
-      next.status = status; // what the curator just chose stands
-    }
-    await store.putPiece(next);
-    res.json({ piece: curatorPiece(next) });
-  } catch (err: any) {
-    console.error("admin update:", err);
-    res.status(500).json({ error: "Could not update that piece." });
+    console.error("unreview prayer:", err);
+    res.status(500).json({ error: "Could not undo the review." });
   }
 });
 
@@ -466,7 +409,7 @@ app.post("/api/waitlist", async (req, res) => {
   }
 });
 
-// Curator: make codes, see members and the waitlist.
+// Review desk: make invite codes, see members and the waitlist.
 app.post("/api/admin/invites", async (req, res) => {
   const count = Math.max(1, Math.min(50, Math.floor(Number(req.body?.count) || 1)));
   const note = String(req.body?.note || "").trim().slice(0, 120) || undefined;

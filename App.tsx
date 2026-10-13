@@ -6,15 +6,16 @@ import { LockScreen } from './components/LockScreen';
 import { getPasscode, LOCKED_EVENT, NOT_MEMBER_EVENT, resetSession } from './services/apiFetch';
 import { deleteMyData, getStatus, signInWithGoogle, type AccountStatus } from './services/rosaApi';
 import { PrivacyView } from './components/PrivacyView';
+import { PrayersView } from './components/PrayersView';
 import { CurateView } from './components/CurateView';
 import { InviteGate } from './components/InviteGate';
 import { InvitesCard } from './components/InvitesCard';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 
-type View = 'home' | Door | 'privacy' | 'curate';
+type View = 'home' | Door | 'prayers' | 'privacy' | 'curate';
 
 function App() {
-  // The reviewer's desk has no button; it opens at /#curate.
+  // The review desk has no button; it opens at /#curate.
   const [view, setView] = useState<View>(() => (window.location.hash === '#curate' ? 'curate' : 'home'));
   useEffect(() => {
     const onHash = () => window.location.hash === '#curate' && setView('curate');
@@ -99,25 +100,16 @@ function App() {
     return <InviteGate googleClientId={googleClientId} status={status} onMember={handleBecameMember} onStatus={setStatus} />;
   }
 
-  // The reviewer's desk keeps its own darker working style.
-  if (view === 'curate') {
-    return (
-      <div className="bg-gray-900 text-gray-100 min-h-screen font-sans">
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <CurateView onBack={goHome} />
-        </main>
-      </div>
-    );
-  }
-
   return (
     <div className="bg-cream text-ink min-h-screen font-sans print:bg-white print:text-black">
       {message && <MessageBox message={message.text} type={message.type} />}
       <Header onHome={goHome} />
       <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-        {view === 'home' && <HomeView onOpen={setView} />}
+        {view === 'home' && <HomeView onOpen={setView} onPrayers={() => setView('prayers')} />}
         {(view === 'rosary' || view === 'cards') && <ComingSoonView door={view} onBack={goHome} />}
         {view === 'home' && inviteOnly && status?.member && <InvitesCard key={loadKey} />}
+        {view === 'prayers' && <PrayersView onBack={goHome} />}
+        {view === 'curate' && <CurateView onBack={goHome} />}
         {view === 'privacy' && <PrivacyView onBack={goHome} onDeleteMyData={handleDeleteMyData} />}
       </main>
 

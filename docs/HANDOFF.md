@@ -113,6 +113,15 @@ Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill n
 
 ## 7. Progress checklist (update this in every pull request)
 
+**Notes from step 2:**
+- The prayers are in `shared/prayers.ts`, copied unchanged from `docs/rosary-basics.md` (a test checks every word).
+  Each names its source (USCCB, How to Pray the Rosary) and a link.
+- Sign-offs are stored in Firestore (`prayerReviews`), each tied to a fingerprint of the exact words, the reviewer's
+  name and the date. Editing a text cancels its sign-off. `GET /api/prayers` sends the words only for signed-off
+  prayers. Step 3 should read prayers from there and show "awaiting review" for the rest.
+- The quote library, Wikiquote checks and bulk approval from Inspire were removed; the review desk is now prayers
+  (plus the Beta tab). `server/jev.ts` stays for the prayer-card notes in step 4.
+
 **Notes from step 1** (for the next session):
 - Removed with their routes and tests: posts, personas, captions, Gemini (image, video, captions, embeddings),
   the quote Vault and quotes, "How are you today?" and the journal, manifest series and WOOP, streaks /
@@ -122,12 +131,12 @@ Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill n
   and didn't build without them, so they were removed too. For step 4, read them from the first commit
   (`git show 8ae03b5:components/WoopWorksheet.tsx`) and rebuild what's needed; re-add `qrcode` and
   `html-to-image` then.
-- The review desk (`/#curate`, `CurateView.tsx`, `server/library.ts`) still works on generic "pieces" with the
-  old dark styling; step 2 turns it into the prayer review desk. Invite codes now start `ROSA-`.
+- Invite codes now start `ROSA-`.
 - The two home-page doors open an honest "being prepared" note until steps 3 and 4 are built.
 
 - [x] 1. Strip and rename
-- [ ] 2. Locked prayer library (English reviewed)
+- [x] 2. Locked prayer library built (8 English prayers, review desk at `/#curate`)
+- [ ] 2a. English prayers checked and signed off by a person on the review desk
 - [ ] 2b. Filipino prayer texts from an official source, reviewed
 - [ ] 3. Pray the Rosary
 - [ ] 4. Prayer cards

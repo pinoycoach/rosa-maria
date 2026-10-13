@@ -18,7 +18,7 @@ const DOORS: Array<{ id: Door; title: string; text: string; tone: string }> = [
 ];
 
 // The home page: two doors.
-export const HomeView: React.FC<{ onOpen: (door: Door) => void }> = ({ onOpen }) => (
+export const HomeView: React.FC<{ onOpen: (door: Door) => void; onPrayers: () => void }> = ({ onOpen, onPrayers }) => (
   <div className="space-y-8 animate-fade-in">
     <div className="text-center space-y-2 pt-2">
       <h1 className="font-serif text-3xl sm:text-4xl text-marian-800">Welcome. Let us pray.</h1>
@@ -36,6 +36,11 @@ export const HomeView: React.FC<{ onOpen: (door: Door) => void }> = ({ onOpen })
         </button>
       ))}
     </div>
+    <p className="text-center">
+      <button onClick={onPrayers} className="text-marian-700 hover:text-marian-600 underline underline-offset-4">
+        Read the prayers of the Rosary
+      </button>
+    </p>
   </div>
 );
 

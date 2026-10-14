@@ -121,6 +121,26 @@ same tab lists saint names people wrote in card notes that aren't on the list (o
 **Prayer cards** work without any extra setup. Whoever opens a card's link sees it without a passcode or account,
 even while the app is locked, so you can test cards with family.
 
+## Step 4b: card pictures (your own photo, or one made with AI)
+
+People can put their own photo on a card, or describe a picture for Google's AI to make. AI pictures never
+show Our Lord, Our Lady, saints, angels or any person; every picture is checked again before it's offered, and
+labelled "Picture made with AI". This needs a storage bucket and Google's AI switched on (a few cents a picture):
+
+```bash
+PROJECT=rosa-maria-511600
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT --format='value(projectNumber)')
+SA="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+gcloud services enable aiplatform.googleapis.com storage.googleapis.com --project $PROJECT
+gcloud storage buckets create gs://${PROJECT}-pictures --location=us-west1 --uniform-bucket-level-access --project $PROJECT
+gcloud storage buckets add-iam-policy-binding gs://${PROJECT}-pictures --member="$SA" --role="roles/storage.objectAdmin"
+gcloud projects add-iam-policy-binding $PROJECT --member="$SA" --role="roles/aiplatform.user" --condition=None
+```
+
+Then add these to the deploy command's `--set-env-vars`:
+`GCS_BUCKET=rosa-maria-511600-pictures,GOOGLE_GENAI_USE_VERTEXAI=true`. Without them, "Your photo" still
+works (pictures live in memory until the server restarts) and "Make a picture" is hidden.
+
 ## Step 5 (optional): the invite-only beta
 
 With this on, the shared passcode is replaced by **Sign in with Google + an invite code**. Every member gets 3
@@ -182,6 +202,13 @@ npm run build
 | `GENERAL_RATE_LIMIT_PER_10MIN` | Requests per visitor per 10 minutes. Default 400 |
 | `JEV_API_KEY` | TypeSafe key for JEV, the checker of card notes. Without it, only Rosa Maria's own rules check notes |
 | `JEV_MODEL`, `JEV_BASE_URL` | Override JEV's model (default `jev-latest`) or address |
+| `GCS_BUCKET` | Storage bucket for card pictures (photos and AI pictures). Without it, pictures are lost when the server restarts |
+| `GOOGLE_GENAI_USE_VERTEXAI` | `true` to make and check card pictures with Vertex AI, billed to the project. Off: no "Make a picture" |
+| `GOOGLE_CLOUD_LOCATION` | Vertex AI location. Default `global` |
+| `GEMINI_API_KEY` | Use a Gemini API key instead of Vertex AI |
+| `MODEL_IMAGE`, `MODEL_TEXT` | Override the picture model and the picture-checking model |
+| `PICTURE_DAILY_LIMIT` / `GLOBAL_PICTURE_DAILY_LIMIT` | AI pictures per visitor / for everyone per day. Defaults 10 / 300 |
+| `UPLOAD_DAILY_LIMIT` | Photos one visitor can upload per day. Default 20 |
 | `CARD_DAILY_LIMIT` | Prayer cards one visitor can send per day. Default 30 |
 | `GLOBAL_CARD_DAILY_LIMIT` | Prayer cards everyone together can send per day. Default 3000 |
 | `ADMIN_CODE` | Reviewer code for the review desk (`/#curate`). Without it, the desk is off |

@@ -5,7 +5,7 @@ import path from "path";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import { MemoryStore, createFirestoreStore, type Store, type UserDoc } from "./server/store";
+import { MemoryStore, MemoryMedia, createFirestoreStore, createGcsMedia, type Store, type MediaStore, type UserDoc } from "./server/store";
 import { PRAYERS, prayerById } from "./shared/prayers";
 import { textHash, publicPrayer, deskPrayer, cleanReviewer, saintKey, saintHash, publicSaints, deskSaint, type Review } from "./server/reviews";
 import { SAINTS, saintById, unknownSaintNames } from "./shared/saints";
@@ -13,6 +13,8 @@ import { occasionById, isDesign, cleanText, NOTE_MAX, NAME_MAX, CARD_ID } from "
 import { noteQuestions, combineFlags, describeFlags } from "./server/cardChecks";
 import { askJev } from "./server/jev";
 import type { CardDoc } from "./server/store";
+import { aiConfigured, makePicture, checkPicture, isBusy } from "./server/ai";
+import { checkPicturePrompt, pictureIsSafe, ownsPicture, PICTURE_PATH, PICTURE_TYPES, PICTURE_MAX_BYTES, PICTURE_PROMPT_MAX } from "./shared/pictures";
 import { createSessions } from "./server/session";
 import {
   STARTER_INVITES, REDEEM_MESSAGES, newInvite, normalizeCode, normalizeEmail, isValidEmail, parseAdminEmails,
@@ -27,13 +29,20 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 app.set("trust proxy", true); // Cloud Run sits behind Google's proxy; this gives the real visitor IP.
-app.use(express.json({ limit: "1mb" }));
+// Uploaded card photos are bigger than anything else (the page shrinks them first); everything else stays small.
+const smallJson = express.json({ limit: "1mb" });
+const photoJson = express.json({ limit: "8mb" });
+app.use((req, res, next) => (req.path === "/api/cards/picture/upload" ? photoJson : smallJson)(req, res, next));
 
 // ---------- Data: database and sessions ----------
 
 // DATA_STORE=memory keeps everything in memory (local runs, tests). Otherwise Firestore.
 const USE_MEMORY = process.env.DATA_STORE === "memory";
 const store: Store = USE_MEMORY ? new MemoryStore() : await createFirestoreStore();
+// Card pictures: a Cloud Storage bucket (GCS_BUCKET), or memory when there is none (lost on restart).
+const GCS_BUCKET = process.env.GCS_BUCKET || "";
+const media: MediaStore = USE_MEMORY || !GCS_BUCKET ? new MemoryMedia() : await createGcsMedia(GCS_BUCKET);
+if (!USE_MEMORY && !GCS_BUCKET) console.warn("GCS_BUCKET is not set: card pictures are kept in memory and lost when the server restarts.");
 
 let SESSION_SECRET = process.env.SESSION_SECRET || "";
 if (!SESSION_SECRET) {
@@ -158,7 +167,7 @@ const OPEN_PATHS = new Set(["/api/config", "/api/unlock"]);
  * pray a decade) without a passcode or account. Only checked prayers and signed-off saints are ever sent.
  */
 const isPublicRead = (method: string, p: string) =>
-  method === "GET" && (p === "/api/prayers" || p === "/api/saints" || /^\/api\/cards\/[A-Za-z0-9_-]{16}$/.test(p));
+  method === "GET" && (p === "/api/prayers" || p === "/api/saints" || /^\/api\/cards\/[A-Za-z0-9_-]{16}$/.test(p) || p.startsWith("/api/media/"));
 const SESSION_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/waitlist"]);
 // Reachable before you're a member (to sign in, redeem an invite or join the waitlist).
 const MEMBER_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/me/status", "/api/auth/google", "/api/invites/redeem", "/api/waitlist"]);
@@ -216,6 +225,7 @@ app.get("/api/config", (_req, res) => {
     inviteOnly: INVITE_ONLY,
     googleClientId: GOOGLE_CLIENT_ID || null,
     dataStore: store.kind,
+    pictureAI: aiConfigured(),
   });
 });
 
@@ -231,10 +241,11 @@ const newUserDoc = (): UserDoc => {
   return { createdAt: now, updatedAt: now };
 };
 
-/** "Delete my data": the cards you sent, the account link, unused invites and the user record. */
+/** "Delete my data": the cards you sent and their pictures, the account link, unused invites and the user record. */
 app.delete("/api/me", async (req, res) => {
   try {
     await store.deleteCardsBy(req.uid!);
+    await media.deletePrefix(`pictures/${req.uid}/`);
     await store.deleteAccountsForUid(req.uid!);
     await store.deleteUnusedInvites(req.uid!);
     await store.deleteUser(req.uid!);
@@ -296,11 +307,86 @@ app.post("/api/cards/check", async (req, res) => {
   }
 });
 
+// ---------- Card pictures: your own photo, or one made with AI (never people or holy figures) ----------
+
+const mediaUrl = (path: string) => `/api/media/${path}?s=${sessions.mediaSig(path)}`;
+const PICTURE_DAILY_LIMIT = Number(process.env.PICTURE_DAILY_LIMIT) || 10;
+const GLOBAL_PICTURE_DAILY_LIMIT = Number(process.env.GLOBAL_PICTURE_DAILY_LIMIT) || 300;
+const UPLOAD_DAILY_LIMIT = Number(process.env.UPLOAD_DAILY_LIMIT) || 20;
+
+const keepPicture = async (uid: string, data: Buffer, mimeType: string) => {
+  const path = `pictures/${uid}/${crypto.randomBytes(8).toString("hex")}.${PICTURE_TYPES[mimeType]}`;
+  await media.put(path, data, mimeType);
+  return path;
+};
+
+app.post("/api/cards/picture/make", async (req, res) => {
+  const prompt = String(req.body?.prompt || "").trim().slice(0, PICTURE_PROMPT_MAX);
+  const ok = checkPicturePrompt(prompt);
+  if (!ok.ok) return res.status(400).json({ error: ok.message });
+  if (!aiConfigured()) return res.status(503).json({ error: "Making pictures isn't switched on yet. You can upload your own photo instead." });
+  if (overLimit(`pic:${req.uid}`, 15)) return res.status(429).json({ error: "Please wait a few minutes before making another picture." });
+  if (!(await takeDaily(`pic_${req.uid}`, PICTURE_DAILY_LIMIT)) || !(await takeDaily("pic_all", GLOBAL_PICTURE_DAILY_LIMIT))) {
+    return res.status(429).json({ error: "That's all the pictures we can make today. Please try again tomorrow, or upload your own photo." });
+  }
+  try {
+    const picture = await makePicture(prompt);
+    if (!picture || !PICTURE_TYPES[picture.mimeType]) return res.status(502).json({ error: "No picture came back this time. Please try again." });
+    if (!pictureIsSafe(await checkPicture(picture.data, picture.mimeType))) {
+      return res.status(422).json({ error: "That picture didn't come out right for a prayer card. Please try again, or change the description a little." });
+    }
+    const path = await keepPicture(req.uid!, Buffer.from(picture.data, "base64"), picture.mimeType);
+    res.json({ picture: { path, kind: "ai", url: mediaUrl(path) } });
+  } catch (err: any) {
+    console.error("make picture:", err);
+    res.status(isBusy(err) ? 503 : 500).json({ error: isBusy(err) ? "Google's AI is busy right now. Try again in a minute." : "Could not make the picture. Please try again." });
+  }
+});
+
+app.post("/api/cards/picture/upload", async (req, res) => {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.image || ""));
+  if (!m) return res.status(400).json({ error: "Please choose a photo (JPG, PNG or WebP)." });
+  const data = Buffer.from(m[2], "base64");
+  if (!data.length || data.length > PICTURE_MAX_BYTES) return res.status(413).json({ error: "That photo is too large. Please choose a smaller one." });
+  if (!(await takeDaily(`upload_${req.uid}`, UPLOAD_DAILY_LIMIT))) return res.status(429).json({ error: "That's a lot of photos for one day. Please try again tomorrow." });
+  try {
+    // Your own photos may show people and church statues; only clearly unsuitable pictures are refused.
+    if (aiConfigured()) {
+      const verdict = await checkPicture(m[2], m[1]);
+      if (verdict?.inappropriate === true) return res.status(422).json({ error: "That photo can't be used on a prayer card. Please choose another." });
+    }
+    const path = await keepPicture(req.uid!, data, m[1]);
+    res.json({ picture: { path, kind: "photo", url: mediaUrl(path) } });
+  } catch (err: any) {
+    console.error("upload picture:", err);
+    res.status(500).json({ error: "Could not save the photo. Please try again." });
+  }
+});
+
+app.get("/api/media/*path", async (req, res) => {
+  const path = ([] as string[]).concat((req.params as any).path).join("/");
+  if (!PICTURE_PATH.test(path) || !sessions.mediaSigValid(path, req.query.s)) return res.status(404).end();
+  try {
+    const file = await media.get(path);
+    if (!file) return res.status(404).end();
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.send(file.data);
+  } catch (err: any) {
+    console.error("media:", err);
+    res.status(500).end();
+  }
+});
+
 const clientCard = async (c: CardDoc) => {
   const reviews = await currentReviews();
   const prayer = prayerById(c.prayerId);
-  const { senderUid, flags, ...rest } = c;
-  return { ...rest, prayer: prayer ? publicPrayer(prayer, reviews) : null };
+  const { senderUid, flags, picture, ...rest } = c;
+  return {
+    ...rest,
+    ...(picture ? { picture: { kind: picture.kind, url: mediaUrl(picture.path) } } : {}),
+    prayer: prayer ? publicPrayer(prayer, reviews) : null,
+  };
 };
 
 app.post("/api/cards", async (req, res) => {
@@ -321,6 +407,10 @@ app.post("/api/cards", async (req, res) => {
     if (!(await takeDaily(`cards_${req.uid}`, CARD_DAILY_LIMIT)) || !(await takeDaily("cards_all", GLOBAL_CARD_DAILY_LIMIT))) {
       return res.status(429).json({ error: "That's a lot of cards for one day. Please send more tomorrow." });
     }
+    const pic = b.picture;
+    if (pic && (!ownsPicture(String(pic.path || ""), req.uid!) || !["photo", "ai"].includes(pic.kind))) {
+      return res.status(400).json({ error: "That picture can't be used. Please choose it again." });
+    }
     const card: CardDoc = {
       id: crypto.randomBytes(12).toString("base64url"),
       occasion: occasion.id,
@@ -329,6 +419,7 @@ app.post("/api/cards", async (req, res) => {
       toName: cleanText(b.toName, NAME_MAX),
       fromName: cleanText(b.fromName, NAME_MAX),
       note,
+      ...(pic ? { picture: { path: String(pic.path), kind: pic.kind } } : {}),
       flags: check.flags.map((f) => f.kind),
       senderUid: req.uid!,
       createdAt: new Date().toISOString(),

@@ -49,8 +49,25 @@ export interface NoteCheck {
   blocked: boolean;
 }
 
+/** A card's own picture: an uploaded photo or one made with AI. */
+export interface CardPicture {
+  kind: 'photo' | 'ai';
+  url: string;
+}
+/** A picture just made or uploaded, before the card is sent. */
+export interface NewPicture extends CardPicture {
+  path: string;
+}
+
+export const makePicture = async (prompt: string) =>
+  (await call<{ picture: NewPicture }>('/api/cards/picture/make', { method: 'POST', body: JSON.stringify({ prompt }) }, 'Could not make the picture')).picture;
+
+export const uploadPicture = async (image: string) =>
+  (await call<{ picture: NewPicture }>('/api/cards/picture/upload', { method: 'POST', body: JSON.stringify({ image }) }, 'Could not save the photo')).picture;
+
 export interface CardView {
   id: string;
+  picture?: CardPicture;
   occasion: string;
   design: string;
   prayerId: string;
@@ -75,6 +92,7 @@ export const sendCard = async (card: {
   fromName: string;
   note: string;
   keepNote: boolean;
+  picture?: { path: string; kind: 'photo' | 'ai' };
 }): Promise<SendResult> => {
   const res = await apiFetch('/api/cards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(card) });
   const data = await res.json().catch(() => ({}));

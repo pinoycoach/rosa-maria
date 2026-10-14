@@ -26,7 +26,7 @@ export const CardOpenView: React.FC<{ id: string; onPrayDecade: () => void; onSe
   const prayer = card.prayer;
   return (
     <div className="max-w-xl mx-auto space-y-6">
-      <CardArt design={card.design as DesignId} greeting={greeting} toName={card.toName} fromName={card.fromName} animate />
+      <CardArt design={card.design as DesignId} greeting={greeting} toName={card.toName} fromName={card.fromName} picture={card.picture} animate />
 
       <div className="space-y-6 animate-fade-in-late">
         {card.note && (

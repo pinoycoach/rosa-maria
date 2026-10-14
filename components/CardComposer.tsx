@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { listPrayers, sendCard, type CardView, type NoteCheck, type PrayerView } from '../services/rosaApi';
+import { listPrayers, makePicture, sendCard, uploadPicture, type CardView, type NewPicture, type NoteCheck, type PrayerView } from '../services/rosaApi';
+import { resizePhoto } from '../services/resizePhoto';
+import { checkPicturePrompt, PICTURE_IDEAS, PICTURE_PROMPT_MAX } from '../shared/pictures';
 import { DESIGNS, NAME_MAX, NOTE_MAX, OCCASIONS, occasionById, type DesignId, type OccasionId } from '../shared/cards';
 import { CardArt } from './CardArt';
 
@@ -28,7 +30,7 @@ const ShareCard: React.FC<{ card: CardView; onAnother: () => void; onHome: () =>
   return (
     <div className="max-w-xl mx-auto space-y-5 animate-fade-in">
       <h1 className="font-serif text-3xl text-marian-800">Your card is ready</h1>
-      <CardArt design={card.design as DesignId} greeting={greeting} toName={card.toName} fromName={card.fromName} />
+      <CardArt design={card.design as DesignId} greeting={greeting} toName={card.toName} fromName={card.fromName} picture={card.picture} />
       <p className="text-gray-700">Send this private link. Whoever opens it will see your card, your note and the prayer.</p>
       <div className="rounded-xl bg-white border border-marian-100 p-3 flex items-center gap-2">
         <span className="flex-1 min-w-0 truncate font-mono text-sm text-gray-700">{link}</span>
@@ -56,7 +58,12 @@ const ShareCard: React.FC<{ card: CardView; onAnother: () => void; onHome: () =>
 };
 
 // Make a prayer card: occasion, design, a checked prayer, and a short note of your own.
-export const CardComposer: React.FC<{ onHome: () => void; replyTo?: string }> = ({ onHome, replyTo }) => {
+export const CardComposer: React.FC<{ onHome: () => void; replyTo?: string; pictureAI?: boolean }> = ({ onHome, replyTo, pictureAI }) => {
+  const [picMode, setPicMode] = useState<'designs' | 'photo' | 'ai'>('designs');
+  const [picture, setPicture] = useState<NewPicture | null>(null);
+  const [picPrompt, setPicPrompt] = useState('');
+  const [picBusy, setPicBusy] = useState(false);
+  const [picError, setPicError] = useState<string | null>(null);
   const [occasion, setOccasion] = useState<OccasionId>('birthday');
   const [design, setDesign] = useState<DesignId>('dawn');
   const [prayers, setPrayers] = useState<PrayerView[] | null>(null);
@@ -92,7 +99,8 @@ export const CardComposer: React.FC<{ onHome: () => void; replyTo?: string }> = 
     setBusy(true);
     setError(null);
     try {
-      const r = await sendCard({ occasion, design, prayerId, toName, fromName, note, keepNote });
+      const pic = picMode !== 'designs' && picture ? { path: picture.path, kind: picture.kind } : undefined;
+      const r = await sendCard({ occasion, design, prayerId, toName, fromName, note, keepNote, picture: pic });
       if ('check' in r) {
         setCheck(r.check);
         setCheckedNote(note);
@@ -145,14 +153,109 @@ export const CardComposer: React.FC<{ onHome: () => void; replyTo?: string }> = 
 
       <section className="space-y-2">
         <h2 className="font-semibold text-marian-800">2. The card</h2>
-        <CardArt design={design} greeting={occ.greeting} toName={toName.trim()} fromName={fromName.trim()} />
-        <div className="flex flex-wrap gap-2">
-          {DESIGNS.map((d) => (
-            <button key={d.id} onClick={() => setDesign(d.id)} className={chip(d.id === design)}>
-              {d.name}
+        <CardArt
+          design={design}
+          greeting={occ.greeting}
+          toName={toName.trim()}
+          fromName={fromName.trim()}
+          picture={picMode !== 'designs' ? picture : null}
+        />
+        <div className="grid grid-cols-3 rounded-xl border border-marian-200 overflow-hidden text-sm font-semibold">
+          {([['designs', 'Our designs'], ['photo', 'Your photo'], ...(pictureAI ? [['ai', 'Make a picture']] : [])] as Array<[typeof picMode, string]>).map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => {
+                setPicMode(m);
+                setPicture(null);
+                setPicError(null);
+              }}
+              className={`py-2 ${picMode === m ? 'bg-marian-700 text-white' : 'bg-white text-gray-700'}`}
+            >
+              {label}
             </button>
           ))}
         </div>
+        {picMode === 'designs' && (
+          <div className="flex flex-wrap gap-2">
+            {DESIGNS.map((d) => (
+              <button key={d.id} onClick={() => setDesign(d.id)} className={chip(d.id === design)}>
+                {d.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {picMode === 'photo' && (
+          <div className="space-y-2">
+            <label className="block w-full text-center rounded-xl border-2 border-dashed border-marian-200 bg-white py-4 cursor-pointer text-marian-800 font-semibold">
+              {picBusy ? 'Adding your photo…' : picture ? 'Choose a different photo' : 'Choose a photo'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={picBusy}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  setPicBusy(true);
+                  setPicError(null);
+                  try {
+                    setPicture(await uploadPicture(await resizePhoto(file)));
+                  } catch (err: any) {
+                    setPicError(err.message);
+                  } finally {
+                    setPicBusy(false);
+                  }
+                }}
+              />
+            </label>
+            <p className="text-xs text-gray-500">A family photo, your parish, flowers from the garden. Only people with the card's link can see it.</p>
+          </div>
+        )}
+        {picMode === 'ai' && (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <input
+                value={picPrompt}
+                onChange={(e) => setPicPrompt(e.target.value)}
+                maxLength={PICTURE_PROMPT_MAX}
+                placeholder="Describe a picture, e.g. white lilies by a window"
+                className="flex-1 min-w-0 rounded-lg bg-white border border-marian-200 px-3 py-2 text-ink"
+              />
+              <button
+                disabled={picBusy || !picPrompt.trim()}
+                onClick={async () => {
+                  const ok = checkPicturePrompt(picPrompt);
+                  if (!ok.ok) return setPicError(ok.message || null);
+                  setPicBusy(true);
+                  setPicError(null);
+                  try {
+                    setPicture(await makePicture(picPrompt));
+                  } catch (err: any) {
+                    setPicError(err.message);
+                  } finally {
+                    setPicBusy(false);
+                  }
+                }}
+                className="shrink-0 bg-marian-700 hover:bg-marian-600 disabled:opacity-50 text-white font-semibold px-4 rounded-lg"
+              >
+                {picBusy ? 'Making…' : picture ? 'Try again' : 'Make it'}
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {PICTURE_IDEAS.map((idea) => (
+                <button key={idea} onClick={() => setPicPrompt(idea)} className="rounded-full bg-white border border-marian-100 px-2.5 py-1 text-xs text-gray-700">
+                  {idea}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500">
+              Out of reverence, AI pictures never show Our Lord, Our Lady, the saints, angels or any person. Each is labelled
+              "Picture made with AI".
+            </p>
+          </div>
+        )}
+        {picError && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">{picError}</p>}
       </section>
 
       <section className="space-y-2">
@@ -211,6 +314,12 @@ export const CardComposer: React.FC<{ onHome: () => void; replyTo?: string }> = 
       >
         {busy ? 'Making your card…' : 'Make my card'}
       </button>
+      {prayers && offered.length === 0 && (
+        <p className="text-sm text-gray-600 text-center -mt-3">A card can be sent once at least one of its prayers has been checked.</p>
+      )}
+      {picMode !== 'designs' && !picture && (
+        <p className="text-sm text-gray-600 text-center -mt-3">No picture chosen yet, so the card will use the {DESIGNS.find((d) => d.id === design)?.name} design.</p>
+      )}
       <p className="text-xs text-gray-500 text-center">Free, always. Your note is shown as yours, never as a prayer of the Church.</p>
     </div>
   );

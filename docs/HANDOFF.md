@@ -113,6 +113,16 @@ Rosa Maria gets **its own Google Cloud project**, so its data, limits and bill n
 
 ## 7. Progress checklist (update this in every pull request)
 
+**Card pictures (added at Napoleon's request, like Inspire):**
+- In the card maker, step 2 has three tabs: "Our designs", "Your photo" (shrunk to 1600px JPEG on the phone, then
+  stored in Cloud Storage under `pictures/<uid>/`) and "Make a picture" (Gemini image model, shown only when AI is
+  configured). Rules are in `shared/pictures.ts`: descriptions naming holy figures or people are refused kindly
+  (English and Tagalog), the model is told never to draw them, and every AI picture is checked by a second model
+  call before it's offered (`server/ai.ts`); anything unclear counts as unsafe. AI pictures carry a "Picture made
+  with AI" label. Uploaded photos may show people (family photos) and are only refused if clearly unsuitable.
+- Pictures are served at `/api/media/...` with a per-file signature; a card can only use its sender's pictures;
+  "Delete my data" removes them. Tests can point `GOOGLE_GEMINI_BASE_URL` at a stand-in.
+
 **Notes from steps 4 and 5:**
 - Cards: `shared/cards.ts` (occasions, designs, note rules), `server/cardChecks.ts` (JEV questions),
   `CardComposer.tsx`, `CardOpenView.tsx`, `CardArt.tsx` (6 drawn designs, no pictures of holy figures). A card is

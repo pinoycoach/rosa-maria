@@ -22,6 +22,8 @@ export interface CardDoc {
   toName: string;
   fromName: string;
   note: string;
+  /** The card's own picture (an uploaded photo or an AI picture), when not one of the drawn designs. */
+  picture?: { path: string; kind: 'photo' | 'ai' };
   /** Checks the sender chose to set aside ("keep my note as it is"). */
   flags: string[];
   senderUid: string;
@@ -68,6 +70,49 @@ export interface Store {
   addToWaitlist(entry: WaitlistDoc): Promise<boolean>;
   listWaitlist(limit: number): Promise<WaitlistDoc[]>;
   markWaitlistInvited(email: string, code: string): Promise<void>;
+}
+
+/** Where card pictures live: Cloud Storage in production, memory for local runs and tests. */
+export interface MediaStore {
+  kind: 'gcs' | 'memory';
+  put(path: string, data: Buffer, contentType: string): Promise<void>;
+  get(path: string): Promise<{ data: Buffer; contentType: string } | null>;
+  deletePrefix(prefix: string): Promise<void>;
+}
+
+export class MemoryMedia implements MediaStore {
+  kind = 'memory' as const;
+  private files = new Map<string, { data: Buffer; contentType: string }>();
+  async put(path: string, data: Buffer, contentType: string) {
+    this.files.set(path, { data, contentType });
+  }
+  async get(path: string) {
+    return this.files.get(path) || null;
+  }
+  async deletePrefix(prefix: string) {
+    for (const k of [...this.files.keys()]) if (k.startsWith(prefix)) this.files.delete(k);
+  }
+}
+
+export async function createGcsMedia(bucketName: string): Promise<MediaStore> {
+  const { Storage } = await import('@google-cloud/storage');
+  const bucket = new Storage().bucket(bucketName);
+  return {
+    kind: 'gcs',
+    async put(path, data, contentType) {
+      await bucket.file(path).save(data, { contentType, resumable: false });
+    },
+    async get(path) {
+      const file = bucket.file(path);
+      const [exists] = await file.exists();
+      if (!exists) return null;
+      const [[data], [meta]] = await Promise.all([file.download(), file.getMetadata()]);
+      return { data, contentType: meta.contentType || 'application/octet-stream' };
+    },
+    async deletePrefix(prefix) {
+      await bucket.deleteFiles({ prefix, force: true });
+    },
+  };
 }
 
 /** "St. Jude", "Saint Jude" and "st jude" are one flag. */

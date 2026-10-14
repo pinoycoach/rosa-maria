@@ -36,6 +36,7 @@ function App() {
   // Invite-only beta: Google sign-in + an invite code; `gated` shows the invite page.
   const [inviteOnly, setInviteOnly] = useState(false);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [pictureAI, setPictureAI] = useState(false);
   const [status, setStatus] = useState<AccountStatus | null>(null);
   const [gated, setGated] = useState(false);
   const [loadKey, setLoadKey] = useState(0);
@@ -45,6 +46,7 @@ function App() {
       .then((r) => (r.ok ? r.json() : null))
       .then(async (config) => {
         setGoogleClientId(config?.googleClientId || null);
+        setPictureAI(!!config?.pictureAI);
         setInviteOnly(!!config?.inviteOnly);
         if (config?.locked && !getPasscode()) setLocked(true);
         else {
@@ -126,7 +128,7 @@ function App() {
           </div>
         )}
         {view === 'rosary' && <RosaryView onBack={goHome} />}
-        {view === 'cards' && <CardComposer key={replyTo} onHome={goHome} replyTo={replyTo} />}
+        {view === 'cards' && <CardComposer key={replyTo} onHome={goHome} replyTo={replyTo} pictureAI={pictureAI} />}
         {view === 'card' && cardId && (
           <CardOpenView
             id={cardId}

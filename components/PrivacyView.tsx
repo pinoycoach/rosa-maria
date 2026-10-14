@@ -43,6 +43,11 @@ export const PrivacyView: React.FC<PrivacyViewProps> = ({ onBack, onDeleteMyData
           them. Your note is checked for chain-letter wording and similar by our own rules and by TypeSafe's JEV checker;
           if it names a saint who isn't on our verified list, we keep just that name (not your note) for a person to look at.
         </p>
+        <p>
+          If you add a picture to a card (your own photo, or one made with AI), we keep it with the card so the person you
+          send it to can see it. Pictures are sent to Google's AI, to make them and to check that they are suitable for a
+          prayer card. Your own photos are shrunk on your phone first, which also removes hidden details like location.
+        </p>
         <p>If you join the waitlist, we keep that email address only to send you an invite.</p>
         <p>We don't sell your data, show ads or charge for praying.</p>
       </section>

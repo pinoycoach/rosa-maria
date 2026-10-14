@@ -102,8 +102,28 @@ export const CardArt: React.FC<{
   fromName?: string;
   animate?: boolean;
   className?: string;
-}> = ({ design, greeting, toName, fromName, animate, className = '' }) => {
+  /** The sender's own photo or an AI picture, shown instead of the drawn design. */
+  picture?: { url: string; kind: 'photo' | 'ai' } | null;
+}> = ({ design, greeting, toName, fromName, animate, className = '', picture }) => {
   const t = THEMES[design];
+  if (picture) {
+    return (
+      <div
+        className={`relative overflow-hidden rounded-3xl shadow-md aspect-[5/4] flex flex-col items-center justify-end text-center px-6 pb-7 text-white ${animate ? 'animate-card-in' : ''} ${className}`}
+      >
+        <img src={picture.url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/15 to-transparent" />
+        {picture.kind === 'ai' && (
+          <span className="absolute top-3 right-3 rounded-full bg-black/40 px-2 py-0.5 text-[11px] text-white/90">Picture made with AI</span>
+        )}
+        <div className="relative">
+          {toName && <p className="text-base opacity-90">For {toName}</p>}
+          <p className="font-serif text-[1.65rem] sm:text-3xl leading-tight drop-shadow">{greeting}</p>
+          {fromName && <p className="mt-1 text-sm opacity-90">with love, {fromName}</p>}
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className={`relative overflow-hidden rounded-3xl shadow-md border border-white/70 aspect-[5/4] flex flex-col items-center justify-end text-center px-6 pb-7 ${animate ? 'animate-card-in' : ''} ${className}`}

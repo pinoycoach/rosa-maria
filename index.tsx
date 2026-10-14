@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -15,3 +16,8 @@ root.render(
     <App />
   </React.StrictMode>
 );
+
+// Keeps the app and the prayers on the phone, so the Rosary works offline once opened.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}

@@ -3,7 +3,7 @@ import { curatorBeta, curatorInviteFromWaitlist, curatorMakeInvites, type BetaOv
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '–');
 
-// The curator's view of the invite-only beta: make codes, see who joined, invite the waitlist.
+// The review desk's view of the invite-only beta: make codes, see who joined, invite the waitlist.
 export const CuratorBeta: React.FC = () => {
   const [data, setData] = useState<BetaOverview | null>(null);
   const [count, setCount] = useState(5);
@@ -44,15 +44,15 @@ export const CuratorBeta: React.FC = () => {
 
   const copy = (text: string) => navigator.clipboard?.writeText(text).catch(() => window.prompt('Copy:', text));
 
-  if (!data) return <p className="text-sm text-gray-400">{error || 'Loading…'}</p>;
+  if (!data) return <p className="text-sm text-gray-600">{error || 'Loading…'}</p>;
   const openCodes = data.invites.filter((i) => !i.used);
 
   return (
     <div className="space-y-6">
-      {error && <p className="text-sm text-red-300">{error}</p>}
+      {error && <p className="text-sm text-red-700">{error}</p>}
 
-      <section className="rounded-xl bg-gray-800 border border-gray-700 p-4 space-y-3">
-        <h2 className="font-semibold text-white">Make invite codes</h2>
+      <section className="rounded-xl bg-white border border-marian-100 p-4 space-y-3">
+        <h2 className="font-semibold text-ink">Make invite codes</h2>
         <div className="flex flex-wrap gap-2 items-center">
           <input
             type="number"
@@ -60,24 +60,24 @@ export const CuratorBeta: React.FC = () => {
             max={50}
             value={count}
             onChange={(e) => setCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-            className="w-20 rounded-lg bg-gray-900 border border-gray-700 p-2 text-white"
+            className="w-20 rounded-lg bg-white border border-marian-200 p-2 text-ink"
             aria-label="How many codes"
           />
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Note (optional), e.g. coaching group"
-            className="flex-1 min-w-0 rounded-lg bg-gray-900 border border-gray-700 p-2 text-white text-sm"
+            className="flex-1 min-w-0 rounded-lg bg-white border border-marian-200 p-2 text-ink text-sm"
           />
-          <button onClick={make} disabled={busy} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-2 px-4 rounded-lg">
+          <button onClick={make} disabled={busy} className="bg-marian-700 hover:bg-marian-600 disabled:opacity-50 text-white font-semibold py-2 px-4 rounded-lg">
             {busy ? '…' : 'Make codes'}
           </button>
         </div>
         {fresh.length > 0 && (
-          <div className="rounded-lg bg-gray-900 p-3">
-            <p className="text-xs text-gray-400 mb-2">New codes:</p>
-            <p className="font-mono text-amber-200 text-sm break-words">{fresh.join('  ')}</p>
-            <button onClick={() => copy(fresh.join('\n'))} className="text-xs text-indigo-300 underline mt-2">Copy all</button>
+          <div className="rounded-lg bg-marian-50 p-3">
+            <p className="text-xs text-gray-600 mb-2">New codes:</p>
+            <p className="font-mono text-marian-800 text-sm break-words">{fresh.join('  ')}</p>
+            <button onClick={() => copy(fresh.join('\n'))} className="text-xs text-marian-700 underline mt-2">Copy all</button>
           </div>
         )}
         <p className="text-xs text-gray-500">
@@ -85,10 +85,10 @@ export const CuratorBeta: React.FC = () => {
         </p>
         {openCodes.length > 0 && (
           <details>
-            <summary className="text-sm text-gray-300 cursor-pointer">Unused codes</summary>
+            <summary className="text-sm text-gray-700 cursor-pointer">Unused codes</summary>
             <ul className="mt-2 grid sm:grid-cols-2 gap-1 text-sm">
               {openCodes.map((i) => (
-                <li key={i.code} className="font-mono text-amber-200">
+                <li key={i.code} className="font-mono text-marian-800">
                   <button onClick={() => copy(i.code)} className="hover:underline">{i.code}</button>
                   {i.note && <span className="text-gray-500 font-sans"> · {i.note}</span>}
                 </li>
@@ -98,11 +98,11 @@ export const CuratorBeta: React.FC = () => {
         )}
       </section>
 
-      <section className="rounded-xl bg-gray-800 border border-gray-700 p-4">
-        <h2 className="font-semibold text-white mb-2">Members ({data.members.filter((m) => m.member).length})</h2>
+      <section className="rounded-xl bg-white border border-marian-100 p-4">
+        <h2 className="font-semibold text-ink mb-2">Members ({data.members.filter((m) => m.member).length})</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="text-gray-400 text-left">
+            <thead className="text-gray-600 text-left">
               <tr>
                 <th className="py-1 pr-3">Name</th>
                 <th className="py-1 pr-3">Joined</th>
@@ -111,13 +111,13 @@ export const CuratorBeta: React.FC = () => {
             </thead>
             <tbody>
               {data.members.map((m) => (
-                <tr key={m.email} className="border-t border-gray-700">
-                  <td className="py-1.5 pr-3 text-white">
+                <tr key={m.email} className="border-t border-marian-100">
+                  <td className="py-1.5 pr-3 text-ink">
                     {m.name}
                     <span className="block text-xs text-gray-500">{m.email}</span>
                   </td>
-                  <td className="py-1.5 pr-3 text-gray-300">{m.member ? day(m.since) : <span className="text-amber-300">no invite yet</span>}</td>
-                  <td className="py-1.5 pr-3 text-gray-300">{m.invitedBy || '–'}</td>
+                  <td className="py-1.5 pr-3 text-gray-700">{m.member ? day(m.since) : <span className="text-amber-700">no invite yet</span>}</td>
+                  <td className="py-1.5 pr-3 text-gray-700">{m.invitedBy || '–'}</td>
                 </tr>
               ))}
             </tbody>
@@ -125,18 +125,18 @@ export const CuratorBeta: React.FC = () => {
         </div>
       </section>
 
-      <section className="rounded-xl bg-gray-800 border border-gray-700 p-4">
-        <h2 className="font-semibold text-white mb-2">Waitlist ({data.waitlist.length})</h2>
+      <section className="rounded-xl bg-white border border-marian-100 p-4">
+        <h2 className="font-semibold text-ink mb-2">Waitlist ({data.waitlist.length})</h2>
         <ul className="space-y-2 text-sm">
           {data.waitlist.length === 0 && <li className="text-gray-500">No one yet.</li>}
           {data.waitlist.map((w) => (
             <li key={w.email} className="flex flex-wrap items-center gap-2">
-              <span className="text-white">{w.email}</span>
+              <span className="text-ink">{w.email}</span>
               <span className="text-gray-500">{day(w.createdAt)}</span>
               {w.invitedCode ? (
-                <button onClick={() => copy(w.invitedCode!)} className="ml-auto font-mono text-amber-200 hover:underline">{w.invitedCode}</button>
+                <button onClick={() => copy(w.invitedCode!)} className="ml-auto font-mono text-marian-800 hover:underline">{w.invitedCode}</button>
               ) : (
-                <button onClick={() => inviteWaitlist(w.email)} className="ml-auto text-indigo-300 underline">Make their invite</button>
+                <button onClick={() => inviteWaitlist(w.email)} className="ml-auto text-marian-700 underline">Make their invite</button>
               )}
             </li>
           ))}

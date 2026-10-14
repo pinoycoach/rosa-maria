@@ -100,7 +100,48 @@ Say **Y** if it asks to create a repository. It takes a few minutes and ends wit
 **Publishing changes later:** `cd ~/rosa-maria && git pull`, then run the same deploy command. If you closed
 Cloud Shell since Step 1, set `PROJECT=…` and `REGION=…` again first.
 
-## Step 4 (optional): the invite-only beta
+## Step 4: check the prayers
+
+No prayer's words are shown to visitors until a person has checked them. Until then, visitors see
+"awaiting review".
+
+1. Open your app's address with `/#curate` on the end, and enter your reviewer code.
+2. Write your name at the top (or the priest's or lay minister's, if they are checking). It appears on each sign-off.
+3. For each prayer, press **open the source**, and compare the words one by one, including punctuation.
+4. If they match exactly, tick the box and press **Sign off this prayer**. If anything differs, don't sign it off:
+   note which words differ, so the text can be corrected from the source in the next update.
+
+The prayers' words live in the code (`shared/prayers.ts`) and can't be edited on the desk. If a text is ever
+corrected, its old sign-off stops counting automatically and it goes back to "awaiting review".
+
+**Saints** work the same way: on the desk's **Saints** tab, check each saint's name, feast day and dates against the
+Church's own calendar and sign it off. Only signed-off saints appear as "Saint of the day" on the home page. The
+same tab lists saint names people wrote in card notes that aren't on the list (only the names are kept).
+
+**Prayer cards** work without any extra setup. Whoever opens a card's link sees it without a passcode or account,
+even while the app is locked, so you can test cards with family.
+
+## Step 4b: card pictures (your own photo, or one made with AI)
+
+People can put their own photo on a card, or describe a picture for Google's AI to make. AI pictures never
+show Our Lord, Our Lady, saints, angels or any person; every picture is checked again before it's offered, and
+labelled "Picture made with AI". This needs a storage bucket and Google's AI switched on (a few cents a picture):
+
+```bash
+PROJECT=rosa-maria-511600
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT --format='value(projectNumber)')
+SA="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+gcloud services enable aiplatform.googleapis.com storage.googleapis.com --project $PROJECT
+gcloud storage buckets create gs://${PROJECT}-pictures --location=us-west1 --uniform-bucket-level-access --project $PROJECT
+gcloud storage buckets add-iam-policy-binding gs://${PROJECT}-pictures --member="$SA" --role="roles/storage.objectAdmin"
+gcloud projects add-iam-policy-binding $PROJECT --member="$SA" --role="roles/aiplatform.user" --condition=None
+```
+
+Then add these to the deploy command's `--set-env-vars`:
+`GCS_BUCKET=rosa-maria-511600-pictures,GOOGLE_GENAI_USE_VERTEXAI=true`. Without them, "Your photo" still
+works (pictures live in memory until the server restarts) and "Make a picture" is hidden.
+
+## Step 5 (optional): the invite-only beta
 
 With this on, the shared passcode is replaced by **Sign in with Google + an invite code**. Every member gets 3
 invites to share. Your own Google email is always let in.
@@ -143,7 +184,7 @@ To switch the beta off later, deploy with `INVITE_ONLY=false` (the passcode appl
 cp .env.example .env.local
 npm install
 npm run dev      # http://localhost:3000
-npm test         # the rules: sessions, invites, the review desk
+npm test         # the rules: sessions, invites, prayer reviews
 npx tsc --noEmit # type check
 npm run build
 ```
@@ -159,12 +200,20 @@ npm run build
 | `SESSION_SECRET` | Signs visitors' anonymous IDs. Must stay the same, or everyone starts fresh |
 | `APP_PASSCODE` | Locks the app behind a passcode |
 | `GENERAL_RATE_LIMIT_PER_10MIN` | Requests per visitor per 10 minutes. Default 400 |
-| `JEV_API_KEY` | TypeSafe key for JEV, the checker. Without it, nothing is flagged |
+| `JEV_API_KEY` | TypeSafe key for JEV, the checker of card notes. Without it, only Rosa Maria's own rules check notes |
 | `JEV_MODEL`, `JEV_BASE_URL` | Override JEV's model (default `jev-latest`) or address |
+| `GCS_BUCKET` | Storage bucket for card pictures (photos and AI pictures). Without it, pictures are lost when the server restarts |
+| `GOOGLE_GENAI_USE_VERTEXAI` | `true` to make and check card pictures with Vertex AI, billed to the project. Off: no "Make a picture" |
+| `GOOGLE_CLOUD_LOCATION` | Vertex AI location. Default `global` |
+| `GEMINI_API_KEY` | Use a Gemini API key instead of Vertex AI |
+| `MODEL_IMAGE`, `MODEL_TEXT` | Override the picture model and the picture-checking model |
+| `PICTURE_DAILY_LIMIT` / `GLOBAL_PICTURE_DAILY_LIMIT` | AI pictures per visitor / for everyone per day. Defaults 10 / 300 |
+| `UPLOAD_DAILY_LIMIT` | Photos one visitor can upload per day. Default 20 |
+| `CARD_DAILY_LIMIT` | Prayer cards one visitor can send per day. Default 30 |
+| `GLOBAL_CARD_DAILY_LIMIT` | Prayer cards everyone together can send per day. Default 3000 |
 | `ADMIN_CODE` | Reviewer code for the review desk (`/#curate`). Without it, the desk is off |
 | `INVITE_ONLY` | `true` turns on the invite-only beta (Google sign-in + invite code) instead of the passcode |
 | `GOOGLE_CLIENT_ID` | The OAuth Web client ID for "Sign in with Google" (public) |
 | `ADMIN_EMAILS` | Comma-separated Google emails that are always members |
 | `AUTH_TEST_SECRET` | Local tests only. **Never set this on the live server** |
-| `WIKIQUOTE_BASE_URL` | Where credited sayings are looked up on the desk; `off` turns it off |
 | `PORT` | Port to listen on. Default 3000, or 8080 in the container |

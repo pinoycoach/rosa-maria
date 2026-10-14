@@ -5,10 +5,16 @@ import path from "path";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import { MemoryStore, createFirestoreStore, type Store, type UserDoc } from "./server/store";
-import { askJev, jevConfigured } from "./server/jev";
-import { KINDS, labelQuestions, applyLabels, labelFlags, NOT_LABELED, pieceState, type LibraryPiece, type PieceStatus } from "./server/library";
-import { knownMisattribution, checkWikiquote, needsSourceCheck, sourceFlags, isSourceFlag, sourceSaysWrong, type SourceCheck } from "./server/sources";
+import { MemoryStore, MemoryMedia, createFirestoreStore, createGcsMedia, type Store, type MediaStore, type UserDoc } from "./server/store";
+import { PRAYERS, prayerById } from "./shared/prayers";
+import { textHash, publicPrayer, deskPrayer, cleanReviewer, saintKey, saintHash, publicSaints, deskSaint, type Review } from "./server/reviews";
+import { SAINTS, saintById, unknownSaintNames } from "./shared/saints";
+import { occasionById, isDesign, cleanText, NOTE_MAX, NAME_MAX, CARD_ID } from "./shared/cards";
+import { noteQuestions, combineFlags, describeFlags } from "./server/cardChecks";
+import { askJev } from "./server/jev";
+import type { CardDoc } from "./server/store";
+import { aiConfigured, makePicture, checkPicture, isBusy } from "./server/ai";
+import { checkPicturePrompt, pictureIsSafe, ownsPicture, PICTURE_PATH, PICTURE_TYPES, PICTURE_MAX_BYTES, PICTURE_PROMPT_MAX } from "./shared/pictures";
 import { createSessions } from "./server/session";
 import {
   STARTER_INVITES, REDEEM_MESSAGES, newInvite, normalizeCode, normalizeEmail, isValidEmail, parseAdminEmails,
@@ -23,13 +29,20 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 app.set("trust proxy", true); // Cloud Run sits behind Google's proxy; this gives the real visitor IP.
-app.use(express.json({ limit: "1mb" }));
+// Uploaded card photos are bigger than anything else (the page shrinks them first); everything else stays small.
+const smallJson = express.json({ limit: "1mb" });
+const photoJson = express.json({ limit: "8mb" });
+app.use((req, res, next) => (req.path === "/api/cards/picture/upload" ? photoJson : smallJson)(req, res, next));
 
 // ---------- Data: database and sessions ----------
 
 // DATA_STORE=memory keeps everything in memory (local runs, tests). Otherwise Firestore.
 const USE_MEMORY = process.env.DATA_STORE === "memory";
 const store: Store = USE_MEMORY ? new MemoryStore() : await createFirestoreStore();
+// Card pictures: a Cloud Storage bucket (GCS_BUCKET), or memory when there is none (lost on restart).
+const GCS_BUCKET = process.env.GCS_BUCKET || "";
+const media: MediaStore = USE_MEMORY || !GCS_BUCKET ? new MemoryMedia() : await createGcsMedia(GCS_BUCKET);
+if (!USE_MEMORY && !GCS_BUCKET) console.warn("GCS_BUCKET is not set: card pictures are kept in memory and lost when the server restarts.");
 
 let SESSION_SECRET = process.env.SESSION_SECRET || "";
 if (!SESSION_SECRET) {
@@ -143,10 +156,18 @@ setInterval(() => {
   for (const [k, v] of hits) if (!v.some((t) => now - t < WINDOW_MS)) hits.delete(k);
 }, WINDOW_MS).unref();
 
-/** Where credited sayings are looked up. "off" turns the lookup off; tests point it at a stand-in. */
-const WIKIQUOTE_BASE_URL = process.env.WIKIQUOTE_BASE_URL ?? "https://en.wikiquote.org";
+/** Counts one use against today's limit; false when the limit is already reached. */
+const takeDaily = async (key: string, limit: number) => (await store.bumpUsage(`${new Date().toISOString().slice(0, 10)}_${key}`)) <= limit;
+const CARD_DAILY_LIMIT = Number(process.env.CARD_DAILY_LIMIT) || 30;
+const GLOBAL_CARD_DAILY_LIMIT = Number(process.env.GLOBAL_CARD_DAILY_LIMIT) || 3000;
 
 const OPEN_PATHS = new Set(["/api/config", "/api/unlock"]);
+/**
+ * Readable by anyone, even while the app is locked or invite-only: a card's recipient opens its link (and may
+ * pray a decade) without a passcode or account. Only checked prayers and signed-off saints are ever sent.
+ */
+const isPublicRead = (method: string, p: string) =>
+  method === "GET" && (p === "/api/prayers" || p === "/api/saints" || /^\/api\/cards\/[A-Za-z0-9_-]{16}$/.test(p) || p.startsWith("/api/media/"));
 const SESSION_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/waitlist"]);
 // Reachable before you're a member (to sign in, redeem an invite or join the waitlist).
 const MEMBER_FREE = new Set(["/api/config", "/api/unlock", "/api/session", "/api/me/status", "/api/auth/google", "/api/invites/redeem", "/api/waitlist"]);
@@ -161,8 +182,13 @@ declare global {
 
 app.use("/api", (req, res, next) => {
   const p = req.originalUrl.split("?")[0];
-  // Media links are signed per file, so <img> tags work without headers.
   if (OPEN_PATHS.has(p)) return next();
+  if (isPublicRead(req.method, p)) {
+    if (overLimit(`all:${req.ip || "unknown"}`, GENERAL_RATE_LIMIT)) {
+      return res.status(429).json({ error: "Too many requests. Please wait a few minutes and try again." });
+    }
+    return next();
+  }
   if (!INVITE_ONLY && APP_PASSCODE && !passcodeMatches(req.get("x-app-passcode"))) {
     return res.status(401).json({ error: "Locked. Enter the app passcode." });
   }
@@ -175,7 +201,7 @@ app.use("/api", (req, res, next) => {
   if (overLimit(`all:${who}`, GENERAL_RATE_LIMIT)) {
     return res.status(429).json({ error: "Too many requests. Please wait a few minutes and try again." });
   }
-  // The curator area has its own code; everything else needs a member once the beta is invite-only.
+  // The review desk has its own code; everything else needs a member once the beta is invite-only.
   if (INVITE_ONLY && !MEMBER_FREE.has(p) && !p.startsWith("/api/admin")) {
     isMember(req.uid || "")
       .then((ok) => (ok ? next() : res.status(403).json({ error: "Rosa Maria is invite-only during the beta.", invite: "required" })))
@@ -199,6 +225,7 @@ app.get("/api/config", (_req, res) => {
     inviteOnly: INVITE_ONLY,
     googleClientId: GOOGLE_CLIENT_ID || null,
     dataStore: store.kind,
+    pictureAI: aiConfigured(),
   });
 });
 
@@ -214,9 +241,11 @@ const newUserDoc = (): UserDoc => {
   return { createdAt: now, updatedAt: now };
 };
 
-/** "Delete my data": the account link, unused invites and the user record. */
+/** "Delete my data": the cards you sent and their pictures, the account link, unused invites and the user record. */
 app.delete("/api/me", async (req, res) => {
   try {
+    await store.deleteCardsBy(req.uid!);
+    await media.deletePrefix(`pictures/${req.uid}/`);
     await store.deleteAccountsForUid(req.uid!);
     await store.deleteUnusedInvites(req.uid!);
     await store.deleteUser(req.uid!);
@@ -228,32 +257,194 @@ app.delete("/api/me", async (req, res) => {
   }
 });
 
-// ---------- Reviewer's library: JEV checks, a person decides ----------
+// ---------- Prayers: shown only once a person has checked the exact words ----------
 
-/** The list and Wikiquote's view of who really said it. */
-async function checkSource(p: LibraryPiece): Promise<SourceCheck> {
-  const known = knownMisattribution(p.text, p.author);
-  const wq = await checkWikiquote(p.text, p.author, WIKIQUOTE_BASE_URL);
-  return { wikiquote: wq.result, ...(wq.url ? { url: wq.url } : {}), ...(known ? { known: known.truth } : {}), checkedAt: new Date().toISOString() };
+// Reviews change rarely and are read on every visit: keep them for a minute.
+let reviewCache: { at: number; reviews: Map<string, Review> } | null = null;
+const currentReviews = async () => {
+  if (!reviewCache || Date.now() - reviewCache.at > 60_000) {
+    const list = await store.listReviews();
+    reviewCache = { at: Date.now(), reviews: new Map(list.map((r) => [r.itemId, r])) };
+  }
+  return reviewCache.reviews;
+};
+
+app.get("/api/prayers", async (_req, res) => {
+  try {
+    const reviews = await currentReviews();
+    res.json({ prayers: PRAYERS.map((p) => publicPrayer(p, reviews)) });
+  } catch (err: any) {
+    console.error("prayers:", err);
+    res.status(500).json({ error: "Could not load the prayers." });
+  }
+});
+
+app.get("/api/saints", async (_req, res) => {
+  try {
+    res.json({ saints: publicSaints(SAINTS, await currentReviews()) });
+  } catch (err: any) {
+    console.error("saints:", err);
+    res.status(500).json({ error: "Could not load the saints." });
+  }
+});
+
+// ---------- Prayer cards ----------
+
+/** The plain rules, then JEV. Saint names not on the verified list are noted for a person to look at. */
+async function checkNote(note: string) {
+  if (!note) return describeFlags([]);
+  const jev = await askJev(`A personal note on a Catholic prayer card:\n${note}`, noteQuestions());
+  for (const name of unknownSaintNames(note)) await store.flagSaintName(name).catch(() => {});
+  return describeFlags(combineFlags(note, jev));
 }
 
-/** Labels (JEV) and checks the source of a piece. `force` redoes both, after an edit. */
-async function processPiece(piece: LibraryPiece, force = false): Promise<LibraryPiece> {
-  const next = { ...piece };
-  if (force || !next.labels) {
-    const { labels } = applyLabels(await askJev(pieceState(next), labelQuestions()));
-    if (labels) next.labels = labels;
+app.post("/api/cards/check", async (req, res) => {
+  try {
+    res.json(await checkNote(cleanText(req.body?.note, NOTE_MAX)));
+  } catch (err: any) {
+    console.error("card check:", err);
+    res.status(500).json({ error: "Could not check the note. Please try again." });
   }
-  // Flags are rebuilt from the labels each time, so a stricter rule reaches pieces labeled before it.
-  next.flags = [...(next.labels ? labelFlags(next.labels) : [NOT_LABELED]), ...next.flags.filter(isSourceFlag)];
-  if (needsSourceCheck(next) && (force || !next.sourceCheck || next.sourceCheck.wikiquote === "unavailable")) {
-    next.sourceCheck = await checkSource(next);
-    next.flags = [...next.flags.filter((f) => !isSourceFlag(f)), ...sourceFlags(next.sourceCheck)];
-    // Wrongly credited: take it out of use until a person looks, unless they already vouched for it.
-    if (next.status === "approved" && !next.sourceChecked && sourceSaysWrong(next.sourceCheck)) next.status = "pending";
+});
+
+// ---------- Card pictures: your own photo, or one made with AI (never people or holy figures) ----------
+
+const mediaUrl = (path: string) => `/api/media/${path}?s=${sessions.mediaSig(path)}`;
+const PICTURE_DAILY_LIMIT = Number(process.env.PICTURE_DAILY_LIMIT) || 10;
+const GLOBAL_PICTURE_DAILY_LIMIT = Number(process.env.GLOBAL_PICTURE_DAILY_LIMIT) || 300;
+const UPLOAD_DAILY_LIMIT = Number(process.env.UPLOAD_DAILY_LIMIT) || 20;
+
+const keepPicture = async (uid: string, data: Buffer, mimeType: string) => {
+  const path = `pictures/${uid}/${crypto.randomBytes(8).toString("hex")}.${PICTURE_TYPES[mimeType]}`;
+  await media.put(path, data, mimeType);
+  return path;
+};
+
+app.post("/api/cards/picture/make", async (req, res) => {
+  const prompt = String(req.body?.prompt || "").trim().slice(0, PICTURE_PROMPT_MAX);
+  const ok = checkPicturePrompt(prompt);
+  if (!ok.ok) return res.status(400).json({ error: ok.message });
+  if (!aiConfigured()) return res.status(503).json({ error: "Making pictures isn't switched on yet. You can upload your own photo instead." });
+  if (overLimit(`pic:${req.uid}`, 15)) return res.status(429).json({ error: "Please wait a few minutes before making another picture." });
+  if (!(await takeDaily(`pic_${req.uid}`, PICTURE_DAILY_LIMIT)) || !(await takeDaily("pic_all", GLOBAL_PICTURE_DAILY_LIMIT))) {
+    return res.status(429).json({ error: "That's all the pictures we can make today. Please try again tomorrow, or upload your own photo." });
   }
-  return next;
-}
+  try {
+    const picture = await makePicture(prompt);
+    if (!picture || !PICTURE_TYPES[picture.mimeType]) return res.status(502).json({ error: "No picture came back this time. Please try again." });
+    if (!pictureIsSafe(await checkPicture(picture.data, picture.mimeType))) {
+      return res.status(422).json({ error: "That picture didn't come out right for a prayer card. Please try again, or change the description a little." });
+    }
+    const path = await keepPicture(req.uid!, Buffer.from(picture.data, "base64"), picture.mimeType);
+    res.json({ picture: { path, kind: "ai", url: mediaUrl(path) } });
+  } catch (err: any) {
+    console.error("make picture:", err);
+    res.status(isBusy(err) ? 503 : 500).json({ error: isBusy(err) ? "Google's AI is busy right now. Try again in a minute." : "Could not make the picture. Please try again." });
+  }
+});
+
+app.post("/api/cards/picture/upload", async (req, res) => {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.image || ""));
+  if (!m) return res.status(400).json({ error: "Please choose a photo (JPG, PNG or WebP)." });
+  const data = Buffer.from(m[2], "base64");
+  if (!data.length || data.length > PICTURE_MAX_BYTES) return res.status(413).json({ error: "That photo is too large. Please choose a smaller one." });
+  if (!(await takeDaily(`upload_${req.uid}`, UPLOAD_DAILY_LIMIT))) return res.status(429).json({ error: "That's a lot of photos for one day. Please try again tomorrow." });
+  try {
+    // Your own photos may show people and church statues; only clearly unsuitable pictures are refused.
+    if (aiConfigured()) {
+      const verdict = await checkPicture(m[2], m[1]);
+      if (verdict?.inappropriate === true) return res.status(422).json({ error: "That photo can't be used on a prayer card. Please choose another." });
+    }
+    const path = await keepPicture(req.uid!, data, m[1]);
+    res.json({ picture: { path, kind: "photo", url: mediaUrl(path) } });
+  } catch (err: any) {
+    console.error("upload picture:", err);
+    res.status(500).json({ error: "Could not save the photo. Please try again." });
+  }
+});
+
+app.get("/api/media/*path", async (req, res) => {
+  const path = ([] as string[]).concat((req.params as any).path).join("/");
+  if (!PICTURE_PATH.test(path) || !sessions.mediaSigValid(path, req.query.s)) return res.status(404).end();
+  try {
+    const file = await media.get(path);
+    if (!file) return res.status(404).end();
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.send(file.data);
+  } catch (err: any) {
+    console.error("media:", err);
+    res.status(500).end();
+  }
+});
+
+const clientCard = async (c: CardDoc) => {
+  const reviews = await currentReviews();
+  const prayer = prayerById(c.prayerId);
+  const { senderUid, flags, picture, ...rest } = c;
+  return {
+    ...rest,
+    ...(picture ? { picture: { kind: picture.kind, url: mediaUrl(picture.path) } } : {}),
+    prayer: prayer ? publicPrayer(prayer, reviews) : null,
+  };
+};
+
+app.post("/api/cards", async (req, res) => {
+  const b = req.body || {};
+  const occasion = occasionById(String(b.occasion || ""));
+  if (!occasion) return res.status(400).json({ error: "Pick an occasion for the card." });
+  if (!isDesign(b.design)) return res.status(400).json({ error: "Pick a card design." });
+  const prayer = prayerById(String(b.prayerId || ""));
+  try {
+    const reviews = await currentReviews();
+    if (!prayer || publicPrayer(prayer, reviews).status !== "reviewed") {
+      return res.status(400).json({ error: "Pick one of the checked prayers for the card." });
+    }
+    const note = cleanText(b.note, NOTE_MAX);
+    const check = await checkNote(note);
+    if (check.blocked) return res.status(400).json({ error: check.flags.find((f) => f.kind === "chain")!.message, ...check });
+    if (check.flags.length && b.keepNote !== true) return res.status(409).json(check);
+    if (!(await takeDaily(`cards_${req.uid}`, CARD_DAILY_LIMIT)) || !(await takeDaily("cards_all", GLOBAL_CARD_DAILY_LIMIT))) {
+      return res.status(429).json({ error: "That's a lot of cards for one day. Please send more tomorrow." });
+    }
+    const pic = b.picture;
+    if (pic && (!ownsPicture(String(pic.path || ""), req.uid!) || !["photo", "ai"].includes(pic.kind))) {
+      return res.status(400).json({ error: "That picture can't be used. Please choose it again." });
+    }
+    const card: CardDoc = {
+      id: crypto.randomBytes(12).toString("base64url"),
+      occasion: occasion.id,
+      design: b.design,
+      prayerId: prayer.id,
+      toName: cleanText(b.toName, NAME_MAX),
+      fromName: cleanText(b.fromName, NAME_MAX),
+      note,
+      ...(pic ? { picture: { path: String(pic.path), kind: pic.kind } } : {}),
+      flags: check.flags.map((f) => f.kind),
+      senderUid: req.uid!,
+      createdAt: new Date().toISOString(),
+    };
+    await store.putCard(card);
+    res.json({ card: await clientCard(card) });
+  } catch (err: any) {
+    console.error("send card:", err);
+    res.status(500).json({ error: "Could not make the card. Please try again." });
+  }
+});
+
+app.get("/api/cards/:id", async (req, res) => {
+  const id = String(req.params.id || "");
+  if (!CARD_ID.test(id)) return res.status(404).json({ error: "We couldn't find that card." });
+  try {
+    const card = await store.getCard(id);
+    if (!card) return res.status(404).json({ error: "We couldn't find that card. It may have been removed." });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json({ card: await clientCard(card) });
+  } catch (err: any) {
+    console.error("open card:", err);
+    res.status(500).json({ error: "Could not open the card. Please try again." });
+  }
+});
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -269,106 +460,109 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
-// ---------- Curator (ADMIN_CODE): import, review, approve ----------
+// ---------- Review desk (ADMIN_CODE) ----------
 
 app.use("/api/admin", (req, res, next) => {
-  if (!ADMIN_CODE) return res.status(404).json({ error: "Curating is switched off on this server." });
-  if (!secretMatches(req.get("x-admin-code"), ADMIN_CODE)) return res.status(403).json({ error: "That curator code isn't right." });
+  if (!ADMIN_CODE) return res.status(404).json({ error: "The review desk is switched off on this server." });
+  if (!secretMatches(req.get("x-admin-code"), ADMIN_CODE)) return res.status(403).json({ error: "That reviewer code isn't right." });
   next();
 });
 
-const curatorPiece = (p: LibraryPiece) => ({ ...p, needsSourceCheck: needsSourceCheck(p) });
-const STATUS_ORDER: Record<PieceStatus, number> = { pending: 0, approved: 1, rejected: 2 };
-const needsWork = (p: LibraryPiece) => !p.labels || (needsSourceCheck(p) && !p.sourceCheck);
-
-app.get("/api/admin/library", async (_req, res) => {
+app.get("/api/admin/prayers", async (_req, res) => {
   try {
-    const pieces = (await store.listLibrary()).sort(
-      (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.createdAt.localeCompare(a.createdAt)
-    );
-    res.json({
-      pieces: pieces.map(curatorPiece),
-      waiting: pieces.filter((p) => p.status !== "rejected" && needsWork(p)).length,
-      jev: jevConfigured(),
-    });
+    const reviews = new Map((await store.listReviews()).map((r) => [r.itemId, r]));
+    res.json({ prayers: PRAYERS.map((p) => deskPrayer(p, reviews)) });
   } catch (err: any) {
-    console.error("admin library:", err);
-    res.status(500).json({ error: "Could not load the library." });
+    console.error("admin prayers:", err);
+    res.status(500).json({ error: "Could not load the prayers." });
   }
 });
 
-const cleanPiece = (raw: any) => ({
-  text: String(raw?.text || "").trim().slice(0, 800),
-  translation: String(raw?.translation || "").trim().slice(0, 800) || undefined,
-  author: String(raw?.author || "").trim().slice(0, 120),
-  source: String(raw?.source || "").trim().slice(0, 200) || undefined,
-});
-
-app.post("/api/admin/library", async (req, res) => {
-  const raw = (Array.isArray(req.body?.pieces) ? req.body.pieces : []).slice(0, 100);
-  const kind = KINDS.has(req.body?.kind) ? req.body.kind : "quote";
-  const fresh: LibraryPiece[] = raw
-    .map(cleanPiece)
-    .filter((p: ReturnType<typeof cleanPiece>) => p.text && p.author)
-    .map((p: ReturnType<typeof cleanPiece>) => ({
-      ...p,
-      id: `lib-${crypto.randomBytes(6).toString("hex")}`,
-      kind,
-      status: "pending" as const,
-      flags: [],
-      createdAt: new Date().toISOString(),
-    }));
-  if (!fresh.length) return res.status(400).json({ error: "Nothing to add. Each line needs the words and who said them." });
+/**
+ * A person signs off a prayer. They must say they compared it word for word, and send the fingerprint of the
+ * words they were shown, so a sign-off can never land on words they didn't see.
+ */
+app.post("/api/admin/prayers/:id/review", async (req, res) => {
+  const prayer = prayerById(String(req.params.id));
+  if (!prayer) return res.status(404).json({ error: "That prayer isn't in the library." });
+  const b = req.body || {};
+  const reviewedBy = cleanReviewer(b.reviewedBy);
+  if (!reviewedBy) return res.status(400).json({ error: "Write the name of the person who checked it." });
+  if (b.comparedWordForWord !== true) return res.status(400).json({ error: "Tick the box to confirm you compared it word for word." });
+  if (b.textHash !== textHash(prayer.text)) return res.status(409).json({ error: "This prayer's words have changed since you opened it. Reload and check it again." });
+  const review: Review = { itemId: prayer.id, textHash: textHash(prayer.text), reviewedBy, reviewedOn: new Date().toISOString().slice(0, 10) };
   try {
-    const done = await mapLimit(fresh, 4, (p) => processPiece(p));
-    await mapLimit(done, 8, (p) => store.putPiece(p));
-    res.json({ added: done.length });
+    await store.putReview(review);
+    reviewCache = null;
+    res.json({ prayer: deskPrayer(prayer, new Map([[prayer.id, review]])) });
   } catch (err: any) {
-    console.error("admin add:", err);
-    res.status(500).json({ error: "Could not add those pieces." });
+    console.error("review prayer:", err);
+    res.status(500).json({ error: "Could not save the review." });
   }
 });
 
-app.post("/api/admin/library/process", async (_req, res) => {
+app.delete("/api/admin/prayers/:id/review", async (req, res) => {
+  const prayer = prayerById(String(req.params.id));
+  if (!prayer) return res.status(404).json({ error: "That prayer isn't in the library." });
   try {
-    const todo = (await store.listLibrary()).filter((p) => p.status !== "rejected" && needsWork(p));
-    const batch = todo.slice(0, 40);
-    const done = await mapLimit(batch, 4, (p) => processPiece(p));
-    await mapLimit(done, 8, (p) => store.putPiece(p));
-    res.json({ processed: done.length, remaining: todo.length - batch.length, jev: jevConfigured() });
+    await store.deleteReview(prayer.id);
+    reviewCache = null;
+    res.json({ prayer: deskPrayer(prayer, new Map()) });
   } catch (err: any) {
-    console.error("admin process:", err);
-    res.status(500).json({ error: "Could not check the library." });
+    console.error("unreview prayer:", err);
+    res.status(500).json({ error: "Could not undo the review." });
   }
 });
 
-app.patch("/api/admin/library/:id", async (req, res) => {
+app.get("/api/admin/saints", async (_req, res) => {
   try {
-    const piece = await store.getPiece(String(req.params.id));
-    if (!piece) return res.status(404).json({ error: "That piece isn't in the library." });
-    const b = req.body || {};
-    let next: LibraryPiece = { ...piece };
-    const edits = cleanPiece({ ...piece, ...b });
-    const changed = edits.text !== piece.text || edits.translation !== piece.translation || edits.author !== piece.author || edits.source !== piece.source;
-    if (!edits.text || !edits.author) return res.status(400).json({ error: "A piece needs its words and who said them." });
-    next = { ...next, ...edits };
-    // The tick vouches for these exact words and credit: editing either clears it unless it's ticked again.
-    if (typeof b.sourceChecked === "boolean") next.sourceChecked = b.sourceChecked;
-    else if (edits.text !== piece.text || edits.author !== piece.author) next.sourceChecked = false;
-    if (["pending", "approved", "rejected"].includes(b.status)) {
-      next.status = b.status;
-      next.reviewedAt = new Date().toISOString();
-    }
-    if (changed || (next.status === "approved" && needsWork(next))) {
-      const status = next.status;
-      next = await processPiece(next, changed);
-      next.status = status; // what the curator just chose stands
-    }
-    await store.putPiece(next);
-    res.json({ piece: curatorPiece(next) });
+    const reviews = new Map((await store.listReviews()).map((r) => [r.itemId, r]));
+    res.json({ saints: SAINTS.map((s) => deskSaint(s, reviews)), flagged: await store.listSaintFlags(100) });
   } catch (err: any) {
-    console.error("admin update:", err);
-    res.status(500).json({ error: "Could not update that piece." });
+    console.error("admin saints:", err);
+    res.status(500).json({ error: "Could not load the saints." });
+  }
+});
+
+app.post("/api/admin/saints/:id/review", async (req, res) => {
+  const saint = saintById(String(req.params.id));
+  if (!saint) return res.status(404).json({ error: "That saint isn't on the list." });
+  const b = req.body || {};
+  const reviewedBy = cleanReviewer(b.reviewedBy);
+  if (!reviewedBy) return res.status(400).json({ error: "Write the name of the person who checked it." });
+  if (b.comparedWithSource !== true) return res.status(400).json({ error: "Tick the box to confirm you checked it against the source." });
+  if (b.textHash !== saintHash(saint)) return res.status(409).json({ error: "This entry has changed since you opened it. Reload and check it again." });
+  const review: Review = { itemId: saintKey(saint.id), textHash: saintHash(saint), reviewedBy, reviewedOn: new Date().toISOString().slice(0, 10) };
+  try {
+    await store.putReview(review);
+    reviewCache = null;
+    res.json({ saint: deskSaint(saint, new Map([[review.itemId, review]])) });
+  } catch (err: any) {
+    console.error("review saint:", err);
+    res.status(500).json({ error: "Could not save the review." });
+  }
+});
+
+app.delete("/api/admin/saints/:id/review", async (req, res) => {
+  const saint = saintById(String(req.params.id));
+  if (!saint) return res.status(404).json({ error: "That saint isn't on the list." });
+  try {
+    await store.deleteReview(saintKey(saint.id));
+    reviewCache = null;
+    res.json({ saint: deskSaint(saint, new Map()) });
+  } catch (err: any) {
+    console.error("unreview saint:", err);
+    res.status(500).json({ error: "Could not undo the review." });
+  }
+});
+
+app.delete("/api/admin/saint-flags", async (req, res) => {
+  try {
+    await store.dismissSaintFlag(String(req.body?.name || ""));
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("dismiss saint flag:", err);
+    res.status(500).json({ error: "Could not clear that name." });
   }
 });
 
@@ -466,7 +660,7 @@ app.post("/api/waitlist", async (req, res) => {
   }
 });
 
-// Curator: make codes, see members and the waitlist.
+// Review desk: make invite codes, see members and the waitlist.
 app.post("/api/admin/invites", async (req, res) => {
   const count = Math.max(1, Math.min(50, Math.floor(Number(req.body?.count) || 1)));
   const note = String(req.body?.note || "").trim().slice(0, 120) || undefined;

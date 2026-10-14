@@ -1,21 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
-import { HomeView, ComingSoonView, type Door } from './components/HomeView';
+import { HomeView, type Door } from './components/HomeView';
 import { MessageBox } from './components/MessageBox';
 import { LockScreen } from './components/LockScreen';
 import { getPasscode, LOCKED_EVENT, NOT_MEMBER_EVENT, resetSession } from './services/apiFetch';
 import { deleteMyData, getStatus, signInWithGoogle, type AccountStatus } from './services/rosaApi';
 import { PrivacyView } from './components/PrivacyView';
+import { PrayersView } from './components/PrayersView';
+import { RosaryView } from './components/RosaryView';
+import { CardComposer } from './components/CardComposer';
+import { CardOpenView } from './components/CardOpenView';
+import { SaintOfTheDay } from './components/SaintOfTheDay';
 import { CurateView } from './components/CurateView';
 import { InviteGate } from './components/InviteGate';
 import { InvitesCard } from './components/InvitesCard';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 
-type View = 'home' | Door | 'privacy' | 'curate';
+type View = 'home' | Door | 'prayers' | 'privacy' | 'curate' | 'card' | 'decade';
+
+// A card's private link: /c/<id>.
+const cardIdFromPath = () => /^\/c\/([A-Za-z0-9_-]{16})\/?$/.exec(window.location.pathname)?.[1] || null;
 
 function App() {
-  // The reviewer's desk has no button; it opens at /#curate.
-  const [view, setView] = useState<View>(() => (window.location.hash === '#curate' ? 'curate' : 'home'));
+  // The review desk has no button; it opens at /#curate. A card link opens the card.
+  const [cardId] = useState(cardIdFromPath);
+  const [view, setView] = useState<View>(() => (window.location.hash === '#curate' ? 'curate' : cardId ? 'card' : 'home'));
+  const [replyTo, setReplyTo] = useState('');
   useEffect(() => {
     const onHash = () => window.location.hash === '#curate' && setView('curate');
     window.addEventListener('hashchange', onHash);
@@ -26,6 +36,7 @@ function App() {
   // Invite-only beta: Google sign-in + an invite code; `gated` shows the invite page.
   const [inviteOnly, setInviteOnly] = useState(false);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [pictureAI, setPictureAI] = useState(false);
   const [status, setStatus] = useState<AccountStatus | null>(null);
   const [gated, setGated] = useState(false);
   const [loadKey, setLoadKey] = useState(0);
@@ -35,6 +46,7 @@ function App() {
       .then((r) => (r.ok ? r.json() : null))
       .then(async (config) => {
         setGoogleClientId(config?.googleClientId || null);
+        setPictureAI(!!config?.pictureAI);
         setInviteOnly(!!config?.inviteOnly);
         if (config?.locked && !getPasscode()) setLocked(true);
         else {
@@ -90,24 +102,18 @@ function App() {
   };
 
   const goHome = () => {
-    if (window.location.hash) history.replaceState(null, '', window.location.pathname);
+    if (window.location.hash || window.location.pathname !== '/') history.replaceState(null, '', '/');
+    setReplyTo('');
     setView('home');
+    window.scrollTo(0, 0);
   };
 
-  if (locked) return <LockScreen onUnlocked={() => { setLocked(false); setLoadKey((k) => k + 1); }} />;
-  if (gated && view !== 'curate') {
-    return <InviteGate googleClientId={googleClientId} status={status} onMember={handleBecameMember} onStatus={setStatus} />;
-  }
+  // Someone opening a card (and praying a decade from it) needs no passcode or account.
+  const publicView = view === 'card' || view === 'decade';
 
-  // The reviewer's desk keeps its own darker working style.
-  if (view === 'curate') {
-    return (
-      <div className="bg-gray-900 text-gray-100 min-h-screen font-sans">
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <CurateView onBack={goHome} />
-        </main>
-      </div>
-    );
+  if (locked && !publicView) return <LockScreen onUnlocked={() => { setLocked(false); setLoadKey((k) => k + 1); }} />;
+  if (gated && view !== 'curate' && !publicView) {
+    return <InviteGate googleClientId={googleClientId} status={status} onMember={handleBecameMember} onStatus={setStatus} />;
   }
 
   return (
@@ -115,9 +121,29 @@ function App() {
       {message && <MessageBox message={message.text} type={message.type} />}
       <Header onHome={goHome} />
       <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-        {view === 'home' && <HomeView onOpen={setView} />}
-        {(view === 'rosary' || view === 'cards') && <ComingSoonView door={view} onBack={goHome} />}
+        {view === 'home' && <HomeView onOpen={setView} onPrayers={() => setView('prayers')} />}
+        {view === 'home' && (
+          <div className="mt-8">
+            <SaintOfTheDay />
+          </div>
+        )}
+        {view === 'rosary' && <RosaryView onBack={goHome} />}
+        {view === 'cards' && <CardComposer key={replyTo} onHome={goHome} replyTo={replyTo} pictureAI={pictureAI} />}
+        {view === 'card' && cardId && (
+          <CardOpenView
+            id={cardId}
+            onPrayDecade={() => setView('decade')}
+            onSendBack={(name) => {
+              history.replaceState(null, '', '/');
+              setReplyTo(name);
+              setView('cards');
+            }}
+          />
+        )}
+        {view === 'decade' && <RosaryView oneDecade onBack={() => setView('card')} />}
         {view === 'home' && inviteOnly && status?.member && <InvitesCard key={loadKey} />}
+        {view === 'prayers' && <PrayersView onBack={goHome} />}
+        {view === 'curate' && <CurateView onBack={goHome} />}
         {view === 'privacy' && <PrivacyView onBack={goHome} onDeleteMyData={handleDeleteMyData} />}
       </main>
 

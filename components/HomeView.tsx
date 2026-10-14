@@ -18,7 +18,7 @@ const DOORS: Array<{ id: Door; title: string; text: string; tone: string }> = [
 ];
 
 // The home page: two doors.
-export const HomeView: React.FC<{ onOpen: (door: Door) => void }> = ({ onOpen }) => (
+export const HomeView: React.FC<{ onOpen: (door: Door) => void; onPrayers: () => void }> = ({ onOpen, onPrayers }) => (
   <div className="space-y-8 animate-fade-in">
     <div className="text-center space-y-2 pt-2">
       <h1 className="font-serif text-3xl sm:text-4xl text-marian-800">Welcome. Let us pray.</h1>
@@ -36,28 +36,10 @@ export const HomeView: React.FC<{ onOpen: (door: Door) => void }> = ({ onOpen })
         </button>
       ))}
     </div>
-  </div>
-);
-
-const SOON: Record<Door, { title: string; text: string }> = {
-  rosary: {
-    title: 'Pray the Rosary',
-    text: "The guided Rosary is being prepared. Every prayer in it is copied from the Church's approved text and checked by a person before it appears here, so it will come a little later.",
-  },
-  cards: {
-    title: 'Send a prayer card',
-    text: "Prayer cards are being prepared. They'll only ever carry prayers that a person has checked against the Church's approved text.",
-  },
-};
-
-// Until each part is built: an honest note, never a guessed prayer.
-export const ComingSoonView: React.FC<{ door: Door; onBack: () => void }> = ({ door, onBack }) => (
-  <div className="max-w-xl mx-auto space-y-4 animate-fade-in">
-    <button onClick={onBack} className="text-marian-700 hover:text-marian-600 font-semibold">
-      ← Back
-    </button>
-    <h1 className="font-serif text-3xl text-marian-800">{SOON[door].title}</h1>
-    <p className="text-lg leading-relaxed text-gray-700">{SOON[door].text}</p>
-    <p className="text-gray-500">Thank you for waiting.</p>
+    <p className="text-center">
+      <button onClick={onPrayers} className="text-marian-700 hover:text-marian-600 underline underline-offset-4">
+        Read the prayers of the Rosary
+      </button>
+    </p>
   </div>
 );

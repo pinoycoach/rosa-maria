@@ -1,4 +1,4 @@
-// Rosa Maria's own API: account status, the beta, and the reviewer's desk (stored by the server).
+// Rosa Maria's own API: the prayers, account status, the beta and the review desk.
 import { apiFetch, setSession } from './apiFetch';
 
 const call = async <T,>(url: string, init: RequestInit = {}, fallback = 'Something went wrong'): Promise<T> => {
@@ -13,15 +13,103 @@ const call = async <T,>(url: string, init: RequestInit = {}, fallback = 'Somethi
 
 export const deleteMyData = () => call<{ deleted: boolean }>('/api/me', { method: 'DELETE' }, 'Could not delete your data');
 
-export interface LibraryPieceView {
+// ---------- Prayers ----------
+
+/** A prayer as visitors see it: the words only once a person has checked them. */
+export type PrayerView = {
   id: string;
-  text: string;
-  translation?: string;
-  author: string;
-  source?: string;
+  title: string;
+  language: 'en' | 'fil';
+  source: string;
+  sourceUrl: string;
+} & ({ status: 'reviewed'; text: string; reviewedBy: string; reviewedOn: string } | { status: 'awaiting-review' });
+
+export const listPrayers = async () => (await call<{ prayers: PrayerView[] }>('/api/prayers', {}, 'Could not load the prayers')).prayers;
+
+// ---------- Saints ----------
+
+/** A saint a person has signed off (only these are ever sent). */
+export interface SaintView {
+  id: string;
+  name: string;
+  feast: string;
+  calendar: string;
+  canonized?: string;
+  about: string;
+  source: string;
+  sourceUrl: string;
 }
 
-// ---------- Curator (needs the curator code) ----------
+export const listSaints = async () => (await call<{ saints: SaintView[] }>('/api/saints', {}, 'Could not load the saints')).saints;
+
+// ---------- Prayer cards ----------
+
+export interface NoteCheck {
+  flags: Array<{ kind: 'chain' | 'promise' | 'luck' | 'curse'; message: string }>;
+  blocked: boolean;
+}
+
+/** A card's own picture: an uploaded photo or one made with AI. */
+export interface CardPicture {
+  kind: 'photo' | 'ai';
+  url: string;
+}
+/** A picture just made or uploaded, before the card is sent. */
+export interface NewPicture extends CardPicture {
+  path: string;
+}
+
+export const makePicture = async (prompt: string) =>
+  (await call<{ picture: NewPicture }>('/api/cards/picture/make', { method: 'POST', body: JSON.stringify({ prompt }) }, 'Could not make the picture')).picture;
+
+export const uploadPicture = async (image: string) =>
+  (await call<{ picture: NewPicture }>('/api/cards/picture/upload', { method: 'POST', body: JSON.stringify({ image }) }, 'Could not save the photo')).picture;
+
+export interface CardView {
+  id: string;
+  picture?: CardPicture;
+  occasion: string;
+  design: string;
+  prayerId: string;
+  toName: string;
+  fromName: string;
+  note: string;
+  createdAt: string;
+  prayer: PrayerView | null;
+}
+
+export const checkNote = (note: string) =>
+  call<NoteCheck>('/api/cards/check', { method: 'POST', body: JSON.stringify({ note }) }, 'Could not check the note');
+
+export type SendResult = { ok: true; card: CardView } | { ok: false; check: NoteCheck };
+
+/** Sends a card. A note with suggestions comes back unsent, unless the sender chose to keep it as it is. */
+export const sendCard = async (card: {
+  occasion: string;
+  design: string;
+  prayerId: string;
+  toName: string;
+  fromName: string;
+  note: string;
+  keepNote: boolean;
+  picture?: { path: string; kind: 'photo' | 'ai' };
+}): Promise<SendResult> => {
+  const res = await apiFetch('/api/cards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(card) });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 409) return { ok: false, check: data as NoteCheck };
+  if (!res.ok) throw new Error(data.error || `Could not send the card (status ${res.status})`);
+  return { ok: true, card: data.card };
+};
+
+/** Opening a card needs no passcode or account. */
+export const openCard = async (id: string): Promise<CardView> => {
+  const res = await fetch(`/api/cards/${encodeURIComponent(id)}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not open the card.');
+  return data.card;
+};
+
+// ---------- Review desk (needs the reviewer code) ----------
 
 const CURATOR_KEY = 'rosa.curator';
 export const getCuratorCode = () => {
@@ -40,32 +128,63 @@ export const setCuratorCode = (code: string) => {
   }
 };
 const curator = <T,>(url: string, init: RequestInit = {}) =>
-  call<T>(url, { ...init, headers: { 'x-admin-code': getCuratorCode(), ...(init.headers || {}) } }, 'Curator request failed');
+  call<T>(url, { ...init, headers: { 'x-admin-code': getCuratorCode(), ...(init.headers || {}) } }, 'Review desk request failed');
 
-export interface CuratorPiece extends LibraryPieceView {
-  kind: 'quote' | 'proverb' | 'own' | 'teaching';
-  status: 'pending' | 'approved' | 'rejected';
-  labels?: { theme?: string; prediction?: number; preachy?: number; attribution?: number };
-  flags: string[];
-  /** A quote credited to a person: needs a human "source checked" tick before bulk approval. */
-  needsSourceCheck: boolean;
-  sourceChecked?: boolean;
-  sourceCheck?: { wikiquote: 'found' | 'unsourced' | 'misattributed' | 'not-found' | 'unavailable'; url?: string; known?: string; checkedAt: string };
-  createdAt: string;
+/** A prayer as the reviewer sees it on the desk. */
+export interface DeskPrayer {
+  id: string;
+  title: string;
+  language: 'en' | 'fil';
+  text: string;
+  source: string;
+  sourceUrl: string;
+  /** Fingerprint of the words shown; sent back with a sign-off. */
+  textHash: string;
+  status: 'reviewed' | 'awaiting-review';
+  reviewedBy: string | null;
+  reviewedOn: string | null;
+  /** It was signed off once, but its words have changed since. */
+  changedSinceReview: boolean;
 }
 
-export const curatorList = () => curator<{ pieces: CuratorPiece[]; waiting: number; jev: boolean }>('/api/admin/library');
+export const deskPrayers = async () => (await curator<{ prayers: DeskPrayer[] }>('/api/admin/prayers')).prayers;
 
-export const curatorAdd = (
-  kind: CuratorPiece['kind'],
-  pieces: Array<{ text: string; author: string; source?: string; translation?: string }>
-) => curator<{ added: number }>('/api/admin/library', { method: 'POST', body: JSON.stringify({ kind, pieces }) });
+export const markReviewed = async (p: DeskPrayer, reviewedBy: string) =>
+  (await curator<{ prayer: DeskPrayer }>(`/api/admin/prayers/${encodeURIComponent(p.id)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewedBy, comparedWordForWord: true, textHash: p.textHash }),
+  })).prayer;
 
-export const curatorProcess = () =>
-  curator<{ processed: number; remaining: number; jev: boolean }>('/api/admin/library/process', { method: 'POST' });
+export interface DeskSaint extends SaintView {
+  aliases: string[];
+  textHash: string;
+  status: 'reviewed' | 'awaiting-review';
+  reviewedBy: string | null;
+  reviewedOn: string | null;
+  changedSinceReview: boolean;
+}
+export interface SaintFlagView {
+  name: string;
+  count: number;
+  lastSeen: string;
+}
 
-export const curatorUpdate = (id: string, changes: Partial<Pick<CuratorPiece, 'status' | 'text' | 'author' | 'source' | 'translation' | 'sourceChecked'>>) =>
-  curator<{ piece: CuratorPiece }>(`/api/admin/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) });
+export const deskSaints = () => curator<{ saints: DeskSaint[]; flagged: SaintFlagView[] }>('/api/admin/saints');
+
+export const markSaintReviewed = async (s: DeskSaint, reviewedBy: string) =>
+  (await curator<{ saint: DeskSaint }>(`/api/admin/saints/${encodeURIComponent(s.id)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewedBy, comparedWithSource: true, textHash: s.textHash }),
+  })).saint;
+
+export const undoSaintReview = async (s: DeskSaint) =>
+  (await curator<{ saint: DeskSaint }>(`/api/admin/saints/${encodeURIComponent(s.id)}/review`, { method: 'DELETE' })).saint;
+
+export const dismissSaintFlag = (name: string) =>
+  curator<{ ok: boolean }>('/api/admin/saint-flags', { method: 'DELETE', body: JSON.stringify({ name }) });
+
+export const undoReview = async (p: DeskPrayer) =>
+  (await curator<{ prayer: DeskPrayer }>(`/api/admin/prayers/${encodeURIComponent(p.id)}/review`, { method: 'DELETE' })).prayer;
 
 // ---------- Beta: sign-in, invites, waitlist ----------
 
